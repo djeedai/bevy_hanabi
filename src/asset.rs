@@ -939,8 +939,9 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for EffectAsset {
                 let alpha_mode =
                     alpha_mode.ok_or_else(|| serde::de::Error::missing_field("alpha_mode"))?;
                 let mesh = mesh.ok_or_else(|| serde::de::Error::missing_field("mesh"))?;
-                // Modifiers uses ReflectModifier type data to construct a concrete type. So we
-                // can directly try_take() here from the PartialReflect to recover that concrete
+                // Modifiers uses ReflectModifier type data to construct a
+                // concrete type. So we can directly try_take()
+                // here from the PartialReflect to recover that concrete
                 // object. This should always succeed.
                 let init_modifiers = init_modifiers
                     .map(|m| m.try_take::<Modifiers>())
@@ -1458,7 +1459,8 @@ mod tests {
         app.init_asset::<EffectAsset>()
             .init_asset_loader::<EffectAssetLoader>();
 
-        // Create an effect, serialize it, and write it to the in-memory file system
+        // Create an effect, serialize it, and write it to the in-memory file
+        // system
         let asset_ref = {
             let type_registry = app.world().resource::<AppTypeRegistry>().clone();
             let type_registry = type_registry.read();

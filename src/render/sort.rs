@@ -202,7 +202,8 @@ impl SortBindGroups {
             });
         }
 
-        // Initial room for 256 ribbon sort dispatches; the GpuBuffer grows on demand.
+        // Initial room for 256 ribbon sort dispatches; the GpuBuffer grows on
+        // demand.
         let indirect_item_size = GpuDispatchIndirectArgs::SHADER_SIZE.get();
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some("hanabi:buffer:sort:indirect"),
@@ -426,9 +427,9 @@ impl SortBindGroups {
         particle_layout: &ParticleLayout,
         pipeline_cache: &PipelineCache,
     ) -> bool {
-        // Validate the sort-fill pipeline. It was created and queued for compile by
-        // ensure_sort_fill_bind_group_layout(), which normally is called just before
-        // is_pipeline_ready().
+        // Validate the sort-fill pipeline. It was created and queued for
+        // compile by ensure_sort_fill_bind_group_layout(), which
+        // normally is called just before is_pipeline_ready().
         let Some(pipeline_id) = self.get_sort_fill_pipeline_id(particle_layout) else {
             return false;
         };
@@ -439,9 +440,10 @@ impl SortBindGroups {
             return false;
         }
 
-        // The 2 pipelines below are created and queued for compile in new(), so are
-        // almost always ready.
-        // FIXME - they could be checked once a frame only, not once per effect...
+        // The 2 pipelines below are created and queued for compile in new(), so
+        // are almost always ready.
+        // FIXME - they could be checked once a frame only, not once per
+        // effect...
 
         // Validate the sort pipeline
         if !matches!(
@@ -588,10 +590,11 @@ impl SortBindGroups {
         let bind_group = match entry {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                // Note: can't use get_bind_group_layout() because the function call mixes the
-                // lifetimes of the two hash maps and complains the bind group one is already
-                // borrowed. Doing a manual access to the layout one instead makes the compiler
-                // happy.
+                // Note: can't use get_bind_group_layout() because the function
+                // call mixes the lifetimes of the two hash maps
+                // and complains the bind group one is already
+                // borrowed. Doing a manual access to the layout one instead
+                // makes the compiler happy.
                 let key = SortFillBindGroupLayoutKey::from_particle_layout(particle_layout)?;
                 let layout_desc = &self
                     .sort_fill_bind_group_layout_descs
@@ -792,8 +795,8 @@ mod gpu_tests {
         pub value: u32,
     }
 
-    // Ignore weirdnesses with f32 NaN etc. here, we should never have a key with
-    // such values.
+    // Ignore weirdnesses with f32 NaN etc. here, we should never have a key
+    // with such values.
     impl std::cmp::Eq for DualKeyValuePair {}
 
     impl std::cmp::PartialOrd for DualKeyValuePair {
@@ -968,7 +971,8 @@ mod gpu_tests {
     fn test_calc_merge_path() {
         let mut test = SortTest::new();
 
-        let block_size = 1024.min(test.max_block_size); // total input buffer size
+        let block_size = 1024.min(test.max_block_size); // total input buffer
+                                                        // size
         let list_len = block_size / 2 - 3;
         let num_kv = list_len * 2; // ensure we don't have an odd size
         println!("block_size = {}", block_size);
@@ -988,7 +992,8 @@ mod gpu_tests {
         {
             let (values_a, values_b) = values.split_at_mut(list_len as usize);
             let mut thread_rng = rand::rng();
-            let max_value = list_len - 30; // limit the range to force duplicate values
+            let max_value = list_len - 30; // limit the range to force duplicate
+                                           // values
             for i in 0..list_len {
                 values_a[i as usize].key = thread_rng.random_range(0..max_value);
                 values_a[i as usize].key2 = i as f32 * 0.1;
@@ -1009,8 +1014,8 @@ mod gpu_tests {
         let workgroups = UVec3::new(1, 1, 1);
         let view = test.dispatch("test_calc_merge_path", num_kv, &values[..], workgroups);
 
-        // Calculate the expected result by doing the actual sort, and deriving all the
-        // merge paths from it.
+        // Calculate the expected result by doing the actual sort, and deriving
+        // all the merge paths from it.
         expected.sort();
         let total_path_len = list_len * 2;
         let path_len = total_path_len.div_ceil(64);
@@ -1032,9 +1037,10 @@ mod gpu_tests {
             })
             .collect();
         for i in 1..paths.len() {
-            // The path at index #i is actually the cumulated path from start. Above we
-            // counted only the i_a within a cross-diagonal interval, but the GPU calculates
-            // the total i_a for the path starting at the beginning of the block up to the
+            // The path at index #i is actually the cumulated path from start.
+            // Above we counted only the i_a within a cross-diagonal
+            // interval, but the GPU calculates the total i_a for
+            // the path starting at the beginning of the block up to the
             // diagonal.
             paths[i] += paths[i - 1];
         }
@@ -1064,9 +1070,9 @@ mod gpu_tests {
         assert_eq!(view_slice.len(), list_len as usize * 2);
         assert!(view_slice.len() >= paths.len());
         for (i, exp_val) in paths.iter().enumerate() {
-            // The test shader stores the resulting i_a[] into the 'value' of the first N
-            // entries of the sort buffer, and the diagonal value of the path into the 'key'
-            // field.
+            // The test shader stores the resulting i_a[] into the 'value' of
+            // the first N entries of the sort buffer, and the
+            // diagonal value of the path into the 'key' field.
 
             let calc_diag = view_slice[i].key;
             let exp_diag = ((i as u32 + 1) * path_len).min(total_path_len);
@@ -1095,8 +1101,8 @@ mod gpu_tests {
 
         let num_particle = 1024.min(test.max_block_size);
 
-        // We use the sort buffer as a generic test data I/O storage. The pairs array is
-        // exactly sized to the number of particles to test.
+        // We use the sort buffer as a generic test data I/O storage. The pairs
+        // array is exactly sized to the number of particles to test.
         //
         // Input:
         // - count: number of effects
@@ -1105,7 +1111,8 @@ mod gpu_tests {
         //
         // Output:
         // - pairs:
-        //   - value[..num_particles] : index of the effect for the given particle
+        //   - value[..num_particles] : index of the effect for the given
+        //     particle
         let effects = [0, 35, 399, 1000];
         assert!((effects.len() as u32) < num_particle);
         let values: Vec<_> = (0..num_particle as usize)

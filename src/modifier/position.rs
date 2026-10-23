@@ -72,8 +72,9 @@ impl SetPositionCircleModifier {
                         format!("let r = {};", ctx.eval(m, self.radius)?)
                     }
                     ShapeDimension::Volume => {
-                        // Radius uniformly distributed in [0:1], then square-rooted
-                        // to account for the increased perimeter covered by increased radii.
+                        // Radius uniformly distributed in [0:1], then
+                        // square-rooted to account for
+                        // the increased perimeter covered by increased radii.
                         format!("let r = sqrt(frand()) * ({});", ctx.eval(m, self.radius)?)
                     }
                 };
@@ -172,9 +173,9 @@ impl SetPositionSphereModifier {
                         format!("let r = {};", ctx.eval(m, self.radius)?)
                     }
                     ShapeDimension::Volume => {
-                        // Radius uniformly distributed in [0:1], then scaled by ^(1/3) in 3D
-                        // to account for the increased surface covered by increased radii.
-                        // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
+                        // Radius uniformly distributed in [0:1], then scaled by
+                        // ^(1/3) in 3D to account for
+                        // the increased surface covered by increased radii. https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
                         format!(
                             "let r = pow(frand(), 1./3.) * ({});",
                             ctx.eval(m, self.radius)?

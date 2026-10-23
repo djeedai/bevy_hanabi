@@ -88,7 +88,8 @@ impl ParticleTextureModifier {
     }
 }
 
-impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
+impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV
+                                                // maybe?
 
 impl RenderModifier for ParticleTextureModifier {
     fn apply_render(
@@ -123,9 +124,9 @@ impl ParticleTextureModifier {
         let sample_mapping_name = format!("{:?}", self.sample_mapping);
 
         // Build a switch statement to select the texture/sampler.
-        // FIXME - Ideally with bindless (texture/sampler arrays with dynamic indices)
-        // we don't need this. But bindless is not available on Web anyway, so this is a
-        // safe fallback.
+        // FIXME - Ideally with bindless (texture/sampler arrays with dynamic
+        // indices) we don't need this. But bindless is not available on
+        // Web anyway, so this is a safe fallback.
         let mut code = String::with_capacity(1024);
         code += &format!(
             "    // ParticleTextureModifier
@@ -588,9 +589,9 @@ impl Modifier for OrientModifier {
     }
 
     fn attributes(&self) -> &[Attribute] {
-        // Note: don't required AXIS_X/Y/Z, they're written at the last minute in the
-        // render shader alone, so don't need to be stored as part of the particle's
-        // layout for simulation.
+        // Note: don't required AXIS_X/Y/Z, they're written at the last minute
+        // in the render shader alone, so don't need to be stored as
+        // part of the particle's layout for simulation.
         match self.mode {
             OrientMode::ParallelCameraDepthPlane => &[],
             OrientMode::FaceCameraPosition => &[Attribute::POSITION],
@@ -828,15 +829,16 @@ impl RenderModifier for ScreenSpaceSizeModifier {
         _module: &mut Module,
         context: &mut RenderContext,
     ) -> Result<(), ExprError> {
-        // Get perspective divide factor from clip space position. This is the "average"
-        // factor for the entire particle, taken at its position (mesh origin),
-        // and applied uniformly for all vertices. Scale size by w_cs to negate
-        // the perspective divide which will happen later after the vertex shader.
-        // The 2.0 factor is because clip space is in [-1:1] so we need to divide by the
-        // half screen size only.
-        // Note: here "size" is the built-in render size, which is always defined and
-        // called "size", and which may or may not be the Attribute::SIZE/2
-        // attribute(s).
+        // Get perspective divide factor from clip space position. This is the
+        // "average" factor for the entire particle, taken at its
+        // position (mesh origin), and applied uniformly for all
+        // vertices. Scale size by w_cs to negate the perspective divide
+        // which will happen later after the vertex shader.
+        // The 2.0 factor is because clip space is in [-1:1] so we need to
+        // divide by the half screen size only.
+        // Note: here "size" is the built-in render size, which is always
+        // defined and called "size", and which may or may not be the
+        // Attribute::SIZE/2 attribute(s).
         context.vertex_code += &format!(
             "let w_cs = transform_position_simulation_to_clip(particle.{0}).w;\n
             let screen_size_pixels = view.viewport.zw;\n
@@ -961,7 +963,9 @@ mod tests {
         modifier.apply_render(&mut module, &mut context).unwrap();
 
         // TODO - no validation at the minute
-        assert_eq!(context.texture_layout.layout.len(), 0); // we "forgot" to add the slot to Module
+        assert_eq!(context.texture_layout.layout.len(), 0); // we "forgot" to
+                                                            // add the slot to
+                                                            // Module
         assert_eq!(context.textures.len(), 0); // we "forgot" the EffectMaterial
     }
 

@@ -836,8 +836,8 @@ impl EffectSpawner {
     /// The integral number of particles to spawn this frame. Any fractional
     /// remainder is saved for the next call.
     pub fn tick(&mut self, mut dt: f32, rng: &mut Pcg32) -> u32 {
-        // If inactive, or if the finite number of cycles has been completed, then we're
-        // done.
+        // If inactive, or if the finite number of cycles has been completed,
+        // then we're done.
         if !self.active
             || (!self.settings.is_forever()
                 && (self.completed_cycle_count >= self.settings.cycle_count()))
@@ -852,8 +852,10 @@ impl EffectSpawner {
             if self.sampled_period == 0.0 {
                 if self.settings.is_once() {
                     self.sampled_spawn_duration = self.settings.spawn_duration.sample(rng);
-                    // Period is unchecked, should be ignored (could sample to <= 0). Use the spawn
-                    // duration, but ensure we have something > 0 as a marker that we've resampled.
+                    // Period is unchecked, should be ignored (could sample to
+                    // <= 0). Use the spawn duration, but
+                    // ensure we have something > 0 as a marker that we've
+                    // resampled.
                     self.sampled_period = self.sampled_spawn_duration.max(1e-12);
                 } else {
                     self.sampled_period = self.settings.period.sample(rng);
@@ -872,13 +874,15 @@ impl EffectSpawner {
 
             // If inside the spawn period, accumulate some particle spawn count
             if self.cycle_time <= self.sampled_spawn_duration {
-                // If the spawn time is very small, close to zero, spawn all particles
-                // immediately in one burst over a single frame.
+                // If the spawn time is very small, close to zero, spawn all
+                // particles immediately in one burst over a
+                // single frame.
                 self.spawn_remainder += if self.sampled_spawn_duration < 1e-5f32.max(dt / 100.0) {
                     self.sampled_count
                 } else {
-                    // Spawn an amount of particles equal to the fraction of time the current frame
-                    // spans compared to the total burst duration.
+                    // Spawn an amount of particles equal to the fraction of
+                    // time the current frame spans compared
+                    // to the total burst duration.
                     let ratio = ((new_time.min(self.sampled_spawn_duration) - self.cycle_time)
                         / self.sampled_spawn_duration)
                         .clamp(0., 1.);
@@ -902,7 +906,8 @@ impl EffectSpawner {
                 if !self.settings.is_forever()
                     && (self.completed_cycle_count >= self.settings.cycle_count())
                 {
-                    // Don't deactivate quite yet, otherwise we'll miss the spawns for this frame
+                    // Don't deactivate quite yet, otherwise we'll miss the
+                    // spawns for this frame
                     break;
                 }
             } else {
@@ -911,8 +916,8 @@ impl EffectSpawner {
             }
         }
 
-        // Extract integral number of particles to spawn this frame, keep remainder for
-        // next one
+        // Extract integral number of particles to spawn this frame, keep
+        // remainder for next one
         let count = self.spawn_remainder.floor();
         self.spawn_remainder -= count;
         self.spawn_count = count as u32;
@@ -963,8 +968,8 @@ pub fn tick_spawners(
     let dt = time.delta_secs();
 
     for (entity, effect, compiled_effect, inherited_visibility, maybe_spawner) in query.iter_mut() {
-        // Skip effect which are not ready; this prevents ticking the spawner for an
-        // effect not ready to consume those spawn commands.
+        // Skip effect which are not ready; this prevents ticking the spawner
+        // for an effect not ready to consume those spawn commands.
         let mut can_tick = if compiled_effect.is_ready() {
             true
         } else {
@@ -1044,8 +1049,8 @@ mod test {
     #[test]
     fn test_new() {
         let rng = &mut new_rng();
-        // 3 particles over 3 seconds, pause 7 seconds (total 10 seconds period). 2
-        // cycles.
+        // 3 particles over 3 seconds, pause 7 seconds (total 10 seconds
+        // period). 2 cycles.
         let spawner = SpawnerSettings::new(3.0.into(), 3.0.into(), 10.0.into(), 2);
         let mut spawner = EffectSpawner::new(&spawner);
         let count = spawner.tick(2., rng); // t = 2s
@@ -1193,7 +1198,8 @@ mod test {
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
         assert!(spawner.active);
-        assert!(spawner.has_completed()); // once(), so completes on first tick()
+        assert!(spawner.has_completed()); // once(), so completes on first
+                                          // tick()
 
         // Completed; no-op
         let count = spawner.tick(1.0, rng);
@@ -1408,10 +1414,12 @@ mod test {
 
             // Tick once
             let _cur_time = {
-                // Make sure to increment the current time so that the spawners spawn something.
-                // Note that `Time` has this weird behavior where the common quantities like
-                // `Time::delta_secs()` only update after the *second* update. So we tick the
-                // `Time` twice here to enforce this.
+                // Make sure to increment the current time so that the spawners
+                // spawn something. Note that `Time` has this
+                // weird behavior where the common quantities like
+                // `Time::delta_secs()` only update after the *second* update.
+                // So we tick the `Time` twice here to enforce
+                // this.
                 let mut time = app.world_mut().resource_mut::<Time<EffectSimulation>>();
                 time.advance_by(Duration::from_millis(16));
                 time.elapsed()
@@ -1422,7 +1430,8 @@ mod test {
 
             // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {
-                // Simulated-when-visible effect (SimulationCondition::WhenVisible)
+                // Simulated-when-visible effect
+                // (SimulationCondition::WhenVisible)
 
                 let (entity, visibility, inherited_visibility, particle_effect, effect_spawner) =
                     world
@@ -1444,7 +1453,8 @@ mod test {
                 );
                 assert_eq!(particle_effect.handle, handle);
 
-                // The EffectSpawner component is always spawned, even if not visible.
+                // The EffectSpawner component is always spawned, even if not
+                // visible.
                 assert!(effect_spawner.is_some());
                 let effect_spawner = effect_spawner.unwrap();
                 let actual_spawner = effect_spawner.settings;
@@ -1478,7 +1488,8 @@ mod test {
                 let actual_spawner = effect_spawner.settings;
 
                 // Check the spawner ticked
-                assert!(effect_spawner.active); // will get deactivated next tick()
+                assert!(effect_spawner.active); // will get deactivated next
+                                                // tick()
                 assert_eq!(effect_spawner.spawn_remainder, 0.);
                 assert_eq!(effect_spawner.cycle_time, 0.);
                 assert_eq!(effect_spawner.completed_cycle_count, 1);

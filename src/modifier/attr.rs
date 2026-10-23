@@ -94,8 +94,9 @@ impl SetAttributeModifier {
         module: &mut Module,
         context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        // Validate if possible that the expression produces the same type expected by
-        // the attribute. This makes it much easier to diagnose issues.
+        // Validate if possible that the expression produces the same type
+        // expected by the attribute. This makes it much easier to
+        // diagnose issues.
         let expr = module.try_get(self.value)?;
         if let Some(value_type) = expr.value_type() {
             let attr_value_type = self.attribute.value_type();

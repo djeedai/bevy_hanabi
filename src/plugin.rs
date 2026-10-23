@@ -256,9 +256,10 @@ impl Plugin for HanabiPlugin {
             info!("Initializing Hanabi for GPU adapter {}", adapter_name);
         }
 
-        // Insert the properly aligned `vfx_common.wesl` shader into Assets<Shader>, so
-        // that the automated Bevy shader processing finds it as an import. This is used
-        // for init/update/render shaders (but not the indirect one).
+        // Insert the properly aligned `vfx_common.wesl` shader into
+        // Assets<Shader>, so that the automated Bevy shader processing
+        // finds it as an import. This is used for init/update/render
+        // shaders (but not the indirect one).
         {
             let common_shader = HanabiPlugin::make_common_shader(
                 render_device.limits().min_storage_buffer_offset_alignment,
@@ -269,8 +270,8 @@ impl Plugin for HanabiPlugin {
                 .unwrap();
         }
 
-        // Insert the two variants of the properly aligned `vfx_indirect.wesl` shaders
-        // into Assets<Shader>.
+        // Insert the two variants of the properly aligned `vfx_indirect.wesl`
+        // shaders into Assets<Shader>.
         let (
             indirect_shader_noevent,
             indirect_shader_events,
@@ -525,10 +526,10 @@ impl Plugin for HanabiPlugin {
             world.add_observer(on_remove_cached_properties);
         }
 
-        // Register the draw function for drawing the particles. This will be called
-        // during the main 2D/3D pass, at the Transparent2d/3d phase, after the
-        // opaque objects have been rendered (or, rather, commands for those
-        // have been recorded).
+        // Register the draw function for drawing the particles. This will be
+        // called during the main 2D/3D pass, at the Transparent2d/3d
+        // phase, after the opaque objects have been rendered (or,
+        // rather, commands for those have been recorded).
         #[cfg(feature = "2d")]
         {
             let draw_particles = DrawEffects::new(render_app.world_mut());

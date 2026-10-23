@@ -33,7 +33,8 @@ macro_rules! impl_lerp_vecn {
         impl Lerp for $t {
             #[inline]
             fn lerp(self, other: Self, ratio: f32) -> Self {
-                // Force use of type's own lerp() to disambiguate and prevent infinite recursion
+                // Force use of type's own lerp() to disambiguate and prevent infinite
+                // recursion
                 <$t>::lerp(self, other, ratio)
             }
         }
@@ -237,8 +238,8 @@ impl<T: Lerp + FromReflect> Gradient<T> {
     /// [`constant()`]: crate::Gradient::constant
     /// [`linear()`]: crate::Gradient::linear
     pub fn from_keys(keys: impl IntoIterator<Item = (f32, T)>) -> Self {
-        // Note that all operations below are stable, including the sort. This ensures
-        // the keys are kept in the correct order.
+        // Note that all operations below are stable, including the sort. This
+        // ensures the keys are kept in the correct order.
         let mut keys = keys
             .into_iter()
             .map(|(ratio, value)| GradientKey { ratio, value })
@@ -356,9 +357,10 @@ impl<T: Lerp + FromReflect> Gradient<T> {
             .binary_search_by(|key| FloatOrd(key.ratio).cmp(&FloatOrd(ratio)))
         {
             Ok(mut index) => {
-                // When there are duplicate keys, binary_search_by() returns the index of an
-                // unspecified one. Make sure we insert always as the last
-                // duplicate one, for determinism.
+                // When there are duplicate keys, binary_search_by() returns the
+                // index of an unspecified one. Make sure we
+                // insert always as the last duplicate one, for
+                // determinism.
                 let len = self.keys.len();
                 while index + 1 < len && self.keys[index].ratio == self.keys[index + 1].ratio {
                     index += 1;
@@ -398,8 +400,9 @@ impl<T: Lerp + FromReflect> Gradient<T> {
             .binary_search_by(|key| FloatOrd(key.ratio).cmp(&FloatOrd(ratio)))
         {
             Ok(mut index) => {
-                // When there are duplicate keys, binary_search_by() returns the index of an
-                // unspecified one. Make sure we sample the first duplicate, for determinism.
+                // When there are duplicate keys, binary_search_by() returns the
+                // index of an unspecified one. Make sure we
+                // sample the first duplicate, for determinism.
                 while index > 0 && self.keys[index - 1].ratio == self.keys[index].ratio {
                     index -= 1;
                 }
@@ -639,7 +642,9 @@ mod tests {
             .get_represented_type_info()
             .unwrap()
             .type_path()
-            .starts_with("bevy_hanabi::gradient::Gradient<")); // the Vec4 type name depends on platform
+            .starts_with("bevy_hanabi::gradient::Gradient<")); // the Vec4 type
+                                                               // name depends
+                                                               // on platform
         let keys = g.field("keys").unwrap();
         let ReflectRef::List(keys) = keys.reflect_ref() else {
             panic!("Invalid type");

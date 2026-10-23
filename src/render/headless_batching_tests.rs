@@ -47,7 +47,8 @@ mod tests {
         prefix_sum: &[u32],
         slab_particle_index: u32,
     ) -> EffectLocation {
-        // Compute passes use packed indices (alive-count domain), not slab indices.
+        // Compute passes use packed indices (alive-count domain), not slab
+        // indices.
         let update_particle_index = slab_particle_index;
         let mut lo = batch.prefix_sum_offset;
         let mut hi = lo + batch.prefix_sum_count;
@@ -72,7 +73,8 @@ mod tests {
 
     #[test]
     fn batching_prefix_sum_contract() {
-        // Simulate the vfx_indirect output: alive counts for each effect instance.
+        // Simulate the vfx_indirect output: alive counts for each effect
+        // instance.
         let mut prefix_sum = vec![10, 5, 8, 6];
         let mut batches = vec![
             BatchInfo {

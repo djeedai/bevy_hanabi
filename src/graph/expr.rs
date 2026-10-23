@@ -422,8 +422,8 @@ impl Module {
         let name = name.into();
         assert!(!self.properties.iter().any(|p| p.name() == name));
         self.properties.push(Property::new(name, default_value));
-        // SAFETY - We just pushed a new property into the array, so its length is
-        // non-zero.
+        // SAFETY - We just pushed a new property into the array, so its length
+        // is non-zero.
         #[allow(unsafe_code)]
         unsafe {
             PropertyHandle::new_unchecked(self.properties.len())
@@ -495,7 +495,8 @@ impl Module {
             name,
             dimension: slot_dimension,
         });
-        // SAFETY - We just pushed a new slot into the array, so its length is non-zero.
+        // SAFETY - We just pushed a new slot into the array, so its length is
+        // non-zero.
         #[allow(unsafe_code)]
         unsafe {
             TextureHandle::new_unchecked(self.texture_layout.layout.len())
@@ -1164,13 +1165,15 @@ impl Expr {
             Expr::Attribute(expr) => expr.eval(context, false),
             Expr::ParentAttribute(expr) => expr.eval(context, true),
             Expr::Unary { op, expr } => {
-                // Recursively evaluate child expressions throught the context to ensure caching
+                // Recursively evaluate child expressions throught the context
+                // to ensure caching
                 let expr = context.eval(module, *expr)?;
 
                 // if expr.value_type() != self.value_type() {
                 //     return Err(ExprError::TypeError(format!(
-                //         "Cannot apply normalize() function to non-vector expression: {}",
-                //         expr.unwrap_or("(error evaluating expression)".to_string())
+                //         "Cannot apply normalize() function to non-vector
+                // expression: {}",         expr.unwrap_or("
+                // (error evaluating expression)".to_string())
                 //     )));
                 // }
 
@@ -1181,14 +1184,16 @@ impl Expr {
                 })
             }
             Expr::Binary { op, left, right } => {
-                // Recursively evaluate child expressions throught the context to ensure caching
+                // Recursively evaluate child expressions throught the context
+                // to ensure caching
                 let compiled_left = context.eval(module, *left)?;
                 let compiled_right = context.eval(module, *right)?;
 
                 // if !self.input.value_type().is_vector() {
                 //     return Err(ExprError::TypeError(format!(
-                //         "Cannot apply normalize() function to non-vector expression: {}",
-                //         expr.unwrap_or("(error evaluating expression)".to_string())
+                //         "Cannot apply normalize() function to non-vector
+                // expression: {}",         expr.unwrap_or("
+                // (error evaluating expression)".to_string())
                 //     )));
                 // }
 
@@ -1261,15 +1266,17 @@ impl Expr {
                 second,
                 third,
             } => {
-                // Recursively evaluate child expressions throught the context to ensure caching
+                // Recursively evaluate child expressions throught the context
+                // to ensure caching
                 let first = context.eval(module, *first)?;
                 let second = context.eval(module, *second)?;
                 let third = context.eval(module, *third)?;
 
                 // if !self.input.value_type().is_vector() {
                 //     return Err(ExprError::TypeError(format!(
-                //         "Cannot apply normalize() function to non-vector expression: {}",
-                //         expr.unwrap_or("(error evaluating expression)".to_string())
+                //         "Cannot apply normalize() function to non-vector
+                // expression: {}",         expr.unwrap_or("
+                // (error evaluating expression)".to_string())
                 //     )));
                 // }
 
@@ -1282,7 +1289,8 @@ impl Expr {
                 ))
             }
             Expr::Cast(expr) => {
-                // Recursively evaluate child expressions throught the context to ensure caching
+                // Recursively evaluate child expressions throught the context
+                // to ensure caching
                 let inner = context.eval(module, expr.inner)?;
 
                 Ok(format!("{}({})", expr.target.to_wgsl_string(), inner))
@@ -1660,8 +1668,8 @@ impl TextureSampleExpr {
         module: &Module,
         context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        // Sampling type texture access can only be used in a fragment shader, so only
-        // in the Render context. This is a WGSL restriction.
+        // Sampling type texture access can only be used in a fragment shader,
+        // so only in the Render context. This is a WGSL restriction.
         if context.modifier_context() != ModifierContext::Render {
             return Err(ExprError::InvalidModifierContext(
                 context.modifier_context(),
@@ -1697,8 +1705,8 @@ impl TextureSampleExpr {
             ));
         }
 
-        // Note: do not use to_wgsl_string(), we want an index suffix and not a WGSL
-        // literal value.
+        // Note: do not use to_wgsl_string(), we want an index suffix and not a
+        // WGSL literal value.
         let slot_index = self.slot_index;
         if self.slot_dimension.is_array() {
             Ok(format!(
@@ -1889,8 +1897,8 @@ impl TextureLoadExpr {
             ));
         }
 
-        // Note: do not use to_wgsl_string(), we want an index suffix and not a WGSL
-        // literal value.
+        // Note: do not use to_wgsl_string(), we want an index suffix and not a
+        // WGSL literal value.
         let slot_index = self.slot_index;
         match self.slot_dimension {
             SlotDimension::D1 | SlotDimension::D2 | SlotDimension::D3 | SlotDimension::DepthD2 => {
@@ -2055,8 +2063,8 @@ impl BuiltInOperator {
     }
 
     // /// Evaluate the result of the operator as an expression.
-    // pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-    //     match self {
+    // pub fn eval(&self, _context: &dyn EvalContext) -> Result<String,
+    // ExprError> {     match self {
     //         BuiltInOperator::Time => Value::Scalar(Scal)
     //     }
     // }
@@ -5066,8 +5074,9 @@ mod tests {
         let xx = res.ok().unwrap();
         assert_eq!(xx, format!("particle.{}", Attribute::POSITION.name()));
 
-        // Use a different context; it's invalid to reuse a mutated context, as the
-        // expression cache will have been generated with the wrong context.
+        // Use a different context; it's invalid to reuse a mutated context, as
+        // the expression cache will have been generated with the wrong
+        // context.
         let mut ctx = ShaderWriter::new(
             ModifierContext::Update,
             &property_layout,
@@ -5134,7 +5143,8 @@ mod tests {
         let x = m.attr(Attribute::POSITION);
         let c = CastExpr::new(x, ScalarType::Bool);
         assert_eq!(c.value_type(), ValueType::Scalar(ScalarType::Bool));
-        assert_eq!(c.is_valid(&m), Some(false)); // invalid cast vector -> scalar
+        assert_eq!(c.is_valid(&m), Some(false)); // invalid cast vector ->
+                                                 // scalar
 
         let p = m.add_property("my_prop", 3.0.into());
         let y = m.prop(p);
@@ -5147,9 +5157,9 @@ mod tests {
     fn side_effect() {
         let mut m = Module::default();
 
-        // Adding the same cloned expression with side effect to itself should yield
-        // twice the value, and not two separate evaluations of the expression.
-        // CORRECT:
+        // Adding the same cloned expression with side effect to itself should
+        // yield twice the value, and not two separate evaluations of
+        // the expression. CORRECT:
         //   let r = frand();
         //   r + r
         // INCORRECT:

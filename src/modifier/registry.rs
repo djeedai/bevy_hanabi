@@ -137,9 +137,9 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for BoxedModifier {
     where
         D: serde::de::Deserializer<'de>,
     {
-        // First, use the generic reflect deserializer which expects a single-entry map
-        // { "full::type::Path": <value> } and returns a Box<dyn PartialReflect> (e.g.
-        // DynamicStruct).
+        // First, use the generic reflect deserializer which expects a
+        // single-entry map { "full::type::Path": <value> } and returns
+        // a Box<dyn PartialReflect> (e.g. DynamicStruct).
         let reflect_seed = ReflectDeserializer::new(registry);
         let boxed_partial: Box<dyn PartialReflect> = reflect_seed
             .deserialize(deserializer)
@@ -151,9 +151,10 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for BoxedModifier {
         })?;
         let type_id = type_info.type_id();
 
-        // Lookup the ReflectModifier type data that must have been registered for this
-        // concrete modifier type (register_reflect_modifier<T>). That type-data
-        // contains the factory used to create a default instance and cached
+        // Lookup the ReflectModifier type data that must have been registered
+        // for this concrete modifier type
+        // (register_reflect_modifier<T>). That type-data contains the
+        // factory used to create a default instance and cached
         // ModifierContext.
         let reflect_modifier = registry
             .get_type_data::<ReflectModifier>(type_id)
@@ -164,9 +165,9 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for BoxedModifier {
                 ))
             })?;
 
-        // Build a default instance using the stored factory. The factory currently
-        // takes a &mut Module; construct a temporary Module (same as
-        // register_reflect_modifier).
+        // Build a default instance using the stored factory. The factory
+        // currently takes a &mut Module; construct a temporary Module
+        // (same as register_reflect_modifier).
         let mut module = Module::default();
         let mut modifier: BoxedModifier = (reflect_modifier.factory)(&mut module);
 
@@ -239,8 +240,8 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for Modifiers {
     where
         D: serde::de::Deserializer<'de>,
     {
-        // Deserialize the Modifiers collection, which is a sequence of single-item
-        // {typename:value} maps.
+        // Deserialize the Modifiers collection, which is a sequence of
+        // single-item {typename:value} maps.
 
         struct ModifiersVisitor<'a> {
             registry: &'a TypeRegistry,
@@ -257,8 +258,9 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for Modifiers {
             where
                 A: SeqAccess<'de>,
             {
-                // Each element is a single-entry map { "full::type::Path": <value> }.
-                // Implement a DeserializeSeed that parses that map into a BoxedModifier.
+                // Each element is a single-entry map { "full::type::Path":
+                // <value> }. Implement a DeserializeSeed that
+                // parses that map into a BoxedModifier.
                 struct ElemSeed<'a> {
                     registry: &'a TypeRegistry,
                 }
@@ -311,7 +313,10 @@ mod tests {
             Reflect,
         };
 
-        use crate::{Attribute, SetAttributeModifier, SetPositionSphereModifier, ShapeDimension};
+        use crate::{
+            Attribute, EmitSpawnEventModifier, EventEmitCondition, SetAttributeModifier,
+            SetPositionSphereModifier, ShapeDimension,
+        };
 
         let mut module = Module::default();
 
@@ -327,6 +332,13 @@ mod tests {
         };
         let bm2: BoxedModifier = Box::new(m2);
         modifiers.push(bm2);
+        let m3 = EmitSpawnEventModifier {
+            condition: EventEmitCondition::OnDie,
+            count: module.lit(5u32),
+            child_index: 0,
+        };
+        let bm3: BoxedModifier = Box::new(m3);
+        modifiers.push(bm3);
         let modifiers = Modifiers(modifiers);
 
         // Prepare a type registry with all known modifiers registered.
@@ -334,8 +346,8 @@ mod tests {
         register_modifiers(&type_registry);
         let registry = type_registry.read();
 
-        // Serialize via reflection, so that the SerializeWithRegistry impl of Modifiers
-        // get automatically picked up and used.
+        // Serialize via reflection, so that the SerializeWithRegistry impl of
+        // Modifiers get automatically picked up and used.
         let s = ron::ser::to_string_pretty(
             &TypedReflectSerializer::new(modifiers.as_reflect(), &registry),
             PrettyConfig::default(),
@@ -343,18 +355,20 @@ mod tests {
         .unwrap();
         println!("{s}");
 
-        // The serialized string must contain the type names of all modifiers, because
-        // they use dynamic dispatching.
+        // The serialized string must contain the type names of all modifiers,
+        // because they use dynamic dispatching.
         assert!(s.contains(std::any::type_name::<SetAttributeModifier>()));
         assert!(s.contains(std::any::type_name::<SetPositionSphereModifier>()));
-        // The Modifiers wrapper itself does not necessarily appear in the serialized
-        // form here because we're serializing the inner representation
-        // directly.
+        assert!(s.contains(std::any::type_name::<EmitSpawnEventModifier>()));
+        // The Modifiers wrapper itself does not necessarily appear in the
+        // serialized form here because we're serializing the inner
+        // representation directly.
         assert!(!s.contains(std::any::type_name::<Modifiers>()));
 
         // Deserialize via reflection again. This also picks up the
-        // DeserializeWithRegistry impl of Modifiers automatically, which recovers the
-        // concrete object via the ReflectModifier type data factory.
+        // DeserializeWithRegistry impl of Modifiers automatically, which
+        // recovers the concrete object via the ReflectModifier type
+        // data factory.
         let mut de = ron::de::Deserializer::from_str(&s).unwrap();
         let type_registration = registry.get(std::any::TypeId::of::<Modifiers>()).unwrap();
         let deserializer = TypedReflectDeserializer::new(type_registration, &registry);
@@ -382,8 +396,13 @@ mod tests {
             .as_reflect()
             .downcast_ref::<SetPositionSphereModifier>()
             .unwrap();
+        let serde_m3 = mods.0[2]
+            .as_reflect()
+            .downcast_ref::<EmitSpawnEventModifier>()
+            .unwrap();
         assert_eq!(m1, *serde_m1);
         assert_eq!(m2, *serde_m2);
+        assert_eq!(m3, *serde_m3);
     }
 
     fn cmp_modifiers<'a>(

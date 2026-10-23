@@ -2191,7 +2191,8 @@ mod tests {
                         assert_eq!(arr[i], arr[j]);
                         assert_eq!(calc_hash(&arr[i]), calc_hash(&arr[j]));
                     } else {
-                        // Different types must be different and hash to different values
+                        // Different types must be different and hash to
+                        // different values
                         assert_ne!(arr[i], arr[j]);
                         assert_ne!(calc_hash(&arr[i]), calc_hash(&arr[j]));
                     }
@@ -2215,7 +2216,8 @@ mod tests {
                     assert_eq!(vecs[i], vecs[j]);
                     assert_eq!(calc_hash(&vecs[i]), calc_hash(&vecs[j]));
                 } else {
-                    // Different types must be different and hash to different values
+                    // Different types must be different and hash to different
+                    // values
                     assert_ne!(vecs[i], vecs[j]);
                     assert_ne!(calc_hash(&vecs[i]), calc_hash(&vecs[j]));
                 }

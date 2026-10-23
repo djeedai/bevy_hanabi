@@ -919,8 +919,8 @@ impl TextureSlot {
             return false;
         }
 
-        // Cube textures need a number of layer multiple of 6. And non-array ones need
-        // exactly 6.
+        // Cube textures need a number of layer multiple of 6. And non-array
+        // ones need exactly 6.
         if self.dimension.is_cube()
             && ((!self.dimension.is_array() && (array_layer_count != 6))
                 || !array_layer_count.is_multiple_of(6))
@@ -1174,9 +1174,9 @@ impl EffectShaderSources {
 
         let particle_layout = asset.particle_layout();
 
-        // The particle layout cannot be empty currently because we always emit some
-        // Particle{} struct and it needs at least one field. There's probably no use
-        // case for an empty layout anyway.
+        // The particle layout cannot be empty currently because we always emit
+        // some Particle{} struct and it needs at least one field.
+        // There's probably no use case for an empty layout anyway.
         if particle_layout.size() == 0 {
             return Err(ShaderGenerateError::Validate(format!(
                 "Asset {} has invalid empty particle layout.",
@@ -1192,8 +1192,8 @@ impl EffectShaderSources {
             }
         }
 
-        // Currently the POSITION attribute is mandatory, as it's always used by the
-        // render shader.
+        // Currently the POSITION attribute is mandatory, as it's always used by
+        // the render shader.
         if !particle_layout.contains(Attribute::POSITION) {
             return Err(ShaderGenerateError::Validate(format!(
                 "The particle layout of asset '{}' is missing the '{}' attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
@@ -1201,8 +1201,9 @@ impl EffectShaderSources {
             )));
         }
 
-        // Currently ribbon rendering requires AGE, so warn if it's missing because
-        // everything will break with some weird error aboud bind groups or whatnot.
+        // Currently ribbon rendering requires AGE, so warn if it's missing
+        // because everything will break with some weird error aboud
+        // bind groups or whatnot.
         if particle_layout.contains(Attribute::RIBBON_ID)
             && !particle_layout.contains(Attribute::AGE)
         {
@@ -1212,8 +1213,8 @@ impl EffectShaderSources {
             )));
         }
 
-        // Generate the WGSL code declaring all the attributes inside the Particle
-        // struct.
+        // Generate the WGSL code declaring all the attributes inside the
+        // Particle struct.
         let attributes_code = particle_layout.generate_code();
         let parent_particle_code = parent_layout
             .map(|layout| {
@@ -1224,8 +1225,8 @@ impl EffectShaderSources {
             })
             .unwrap_or_default();
 
-        // For the renderer, assign all its inputs to the values of the attributes
-        // present, or a default value.
+        // For the renderer, assign all its inputs to the values of the
+        // attributes present, or a default value.
         let mut inputs_code = String::new();
         // All required attributes, except the size/color which are variadic
         let required_attributes =
@@ -1290,8 +1291,9 @@ impl EffectShaderSources {
                 present_attributes.insert(attr);
             }
         }
-        // For all attributes required by the render shader, if they're not explicitly
-        // stored in the particle layout, define a variable with their default value.
+        // For all attributes required by the render shader, if they're not
+        // explicitly stored in the particle layout, define a variable
+        // with their default value.
         if !has_size {
             inputs_code += &format!(
                 "var size = {0};\n",
@@ -1323,13 +1325,13 @@ impl EffectShaderSources {
             "@group(2) @binding(3) var<storage, read> properties : array<Properties>;".to_string()
         };
 
-        // Generate the shader code defining the material bindings. These occupy the
-        // @group(2) @binding(4..) range.
+        // Generate the shader code defining the material bindings. These occupy
+        // the @group(2) @binding(4..) range.
         let texture_layout = asset.texture_layout();
         let material_bindings_code = texture_layout.to_wgsl_binding(2, 4);
 
-        // Event buffer bindings for the update pass, if the effect emits GPU events to
-        // one or more other effects.
+        // Event buffer bindings for the update pass, if the effect emits GPU
+        // events to one or more other effects.
         let mut emit_event_buffer_bindings_code = String::with_capacity(256);
         emit_event_buffer_bindings_code.push_str(
             "@if(EMITS_GPU_SPAWN_EVENTS)\n@group(3) @binding(1) var<storage, read_write> child_info_buffer : ChildInfoBuffer;\n",
@@ -1369,9 +1371,9 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             emit_event_buffer_append_funcs_code = "// (not emitting GPU events)".into();
         }
 
-        // Start from the base module containing the expressions actually serialized in
-        // the asset. We will add the ones created on-the-fly by applying the
-        // modifiers to the contexts.
+        // Start from the base module containing the expressions actually
+        // serialized in the asset. We will add the ones created
+        // on-the-fly by applying the modifiers to the contexts.
         let mut module = asset.module().clone();
 
         let mut layout_flags = LayoutFlags::NONE;
@@ -1415,8 +1417,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                     ShaderGenerateError::Expr(err)
                 })?;
 
-            // Effect uses GPU spawn events if it produces them, or if it has a parent and
-            // consumes them from that parent.
+            // Effect uses GPU spawn events if it produces them, or if it has a
+            // parent and consumes them from that parent.
             let consume_gpu_spawn_events =
                 init_context.emits_gpu_spawn_events().unwrap_or(false) || parent_layout.is_some();
 
@@ -1485,7 +1487,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
         let has_velocity = present_attributes.contains(&Attribute::VELOCITY);
         if asset.motion_integration != MotionIntegration::None {
             if has_position && has_velocity {
-                // Note the prepended "\n" to prevent appending to a comment line.
+                // Note the prepended "\n" to prevent appending to a comment
+                // line.
                 let code = format!(
                     "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
                     Attribute::POSITION.name(),
@@ -1561,7 +1564,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 render_context.sprite_grid_size
             {
                 layout_flags |= LayoutFlags::FLIPBOOK;
-                // Note: row_count needs to be i32, not u32, because of sprite_index
+                // Note: row_count needs to be i32, not u32, because of
+                // sprite_index
                 let flipbook_row_count_code = (grid_size.x as i32).to_wgsl_string();
                 let flipbook_scale_code =
                     Vec2::new(1.0 / grid_size.x as f32, 1.0 / grid_size.y as f32).to_wgsl_string();
@@ -1606,9 +1610,9 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 );
             }
         } else {
-            // Since we're using a dead index buffer, all particles that make it to the
-            // update compute shader are guaranteed to be alive (we never
-            // simulate dead particles).
+            // Since we're using a dead index buffer, all particles that make it
+            // to the update compute shader are guaranteed to be
+            // alive (we never simulate dead particles).
             age_code = "\n    let was_alive = true;\n    var is_alive = true;".to_string();
         }
 
@@ -1640,8 +1644,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .unwrap();
         }
 
-        // Configure the update shader template, and make sure a corresponding shader
-        // asset exists
+        // Configure the update shader template, and make sure a corresponding
+        // shader asset exists
         let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{PARENT_PARTICLE}}", &parent_particle_code)
@@ -1667,8 +1671,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             update_shader_source
         );
 
-        // Configure the render shader template, and make sure a corresponding shader
-        // asset exists
+        // Configure the render shader template, and make sure a corresponding
+        // shader asset exists
         let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{INPUTS}}", &inputs_code)
@@ -1800,26 +1804,28 @@ impl CompiledParticleEffect {
         );
 
         // #289 - Panic in fn extract_effects
-        // We now keep a strong handle. Since CompiledParticleEffect is kept in sync
-        // with the source ParticleEffect, this shouldn't produce any strong cyclic
-        // dependency.
+        // We now keep a strong handle. Since CompiledParticleEffect is kept in
+        // sync with the source ParticleEffect, this shouldn't produce
+        // any strong cyclic dependency.
         debug_assert!(instance.handle.is_strong());
 
-        // Note: if something marked the ParticleEffect as changed (via Mut for example)
-        // but didn't actually change anything, or at least didn't change the asset,
-        // then we may end up here with the same asset handle. Don't try to be
-        // too smart, and rebuild everything anyway, it's easier than trying to
-        // diff what may or may not have changed.
+        // Note: if something marked the ParticleEffect as changed (via Mut for
+        // example) but didn't actually change anything, or at least
+        // didn't change the asset, then we may end up here with the
+        // same asset handle. Don't try to be too smart, and rebuild
+        // everything anyway, it's easier than trying to diff what may
+        // or may not have changed.
         self.asset = instance.handle.clone();
         self.simulation_condition = asset.simulation_condition;
         self.prng_seed = instance.prng_seed.unwrap_or(asset.prng_seed);
 
-        // Check if the instance changed. If so, rebuild some data from this compiled
-        // effect based on the new data of the effect instance.
+        // Check if the instance changed. If so, rebuild some data from this
+        // compiled effect based on the new data of the effect instance.
         if rebuild {
-            // Clear the compiled effect if the effect instance changed. We could try to get
-            // smarter here, only invalidate what changed, but for now just wipe everything
-            // and rebuild from scratch all three shaders together.
+            // Clear the compiled effect if the effect instance changed. We
+            // could try to get smarter here, only invalidate what
+            // changed, but for now just wipe everything and rebuild
+            // from scratch all three shaders together.
             self.effect_shader = None;
         }
 
@@ -1856,13 +1862,13 @@ impl CompiledParticleEffect {
             self.alpha_mode
         );
 
-        // TODO - Replace with Option<EffectShader { handle: Handle<Shader>, hash:
-        // u64 }> where the hash takes into account the code and extra code
-        // for each pass (and any other varying item). We don't need to keep
-        // around the entire shader code, only a hash of it for compare (or, maybe safer
-        // to avoid hash collisions, an index into a shader cache). The only
-        // use is to be able to compare 2 instances and see if they can be
-        // batched together.
+        // TODO - Replace with Option<EffectShader { handle: Handle<Shader>,
+        // hash: u64 }> where the hash takes into account the code and
+        // extra code for each pass (and any other varying item). We
+        // don't need to keep around the entire shader code, only a hash
+        // of it for compare (or, maybe safer to avoid hash collisions,
+        // an index into a shader cache). The only use is to be able to
+        // compare 2 instances and see if they can be batched together.
         self.effect_shader = Some(EffectShaders {
             init: shader_cache.get_or_insert(
                 &asset.name,
@@ -2077,10 +2083,11 @@ fn compile_effects(
 ) {
     trace!("compile_effects: {} effect(s)", q_effects.iter().len());
 
-    // Loop over all existing effects and collect the valid ones. We do a separate
-    // pass because we can't borrow mutably while doing a double lookup on the
-    // query. This map is used to lookup valid parents, and filter out effects with
-    // a declared parent but unresolved parent asset.
+    // Loop over all existing effects and collect the valid ones. We do a
+    // separate pass because we can't borrow mutably while doing a double
+    // lookup on the query. This map is used to lookup valid parents, and
+    // filter out effects with a declared parent but unresolved parent
+    // asset.
     let particle_layouts_and_parents: HashMap<Entity, (ParticleLayout, Option<Entity>)> = q_effects
         .iter()
         .filter_map(|(entity, effect, _, _, parent, _)| {
@@ -2111,8 +2118,9 @@ fn compile_effects(
         mut compiled_effect,
     ) in q_effects.iter_mut().filter_map(
         |(entity, effect, material, mesh, parent, compiled_effect)| {
-            // Check if asset is available, otherwise silently ignore as we can't check for
-            // changes, and conceptually it makes no sense to render a particle effect whose
+            // Check if asset is available, otherwise silently ignore as we
+            // can't check for changes, and conceptually it makes no
+            // sense to render a particle effect whose
             // asset was unloaded.
             let asset = effects.get(&effect.handle)?;
 
@@ -2120,10 +2128,12 @@ fn compile_effects(
             let (parent_entity, parent_layout) = if let Some(parent) = &parent {
                 let Some((parent_layout, _)) = particle_layouts_and_parents.get(&parent.entity)
                 else {
-                    // There's a parent declared, but not found. Skip the current asset.
+                    // There's a parent declared, but not found. Skip the
+                    // current asset.
                     return None;
                 };
-                // Declared parent with found parent asset, child asset is valid.
+                // Declared parent with found parent asset, child asset is
+                // valid.
                 (Some(parent.entity), Some(parent_layout.clone()))
             } else {
                 // No declared parent, asset is valid.
@@ -2147,8 +2157,8 @@ fn compile_effects(
             .map(std::mem::take)
             .unwrap_or_default();
 
-        // If the ParticleEffect didn't change, and the compiled one is for the correct
-        // asset, then there's nothing to do.
+        // If the ParticleEffect didn't change, and the compiled one is for the
+        // correct asset, then there's nothing to do.
         let material_changed = material.as_ref().is_some_and(|r| r.is_changed());
         let need_rebuild =
             effect.is_changed() || material_changed || compiled_effect.children != child_entities;
@@ -2171,10 +2181,11 @@ fn compile_effects(
                 &mut shader_cache,
             );
         } else {
-            // Update the PRNG seed. Unfortunately at the minute the "seed" (which
-            // really is the internal PRNG state rather) is not cached on GPU, and
-            // is re-uploaded each frame, so if it's not changed every frame then
-            // there's no randomness anymore, because the uses of the previous frame
+            // Update the PRNG seed. Unfortunately at the minute the "seed"
+            // (which really is the internal PRNG state rather) is
+            // not cached on GPU, and is re-uploaded each frame, so
+            // if it's not changed every frame then there's no
+            // randomness anymore, because the uses of the previous frame
             // are "forgotten".
             let mut rng = rand::rngs::StdRng::seed_from_u64(compiled_effect.prng_seed as u64);
             compiled_effect.prng_seed = rng.random();
@@ -2188,8 +2199,8 @@ fn compile_effects(
             compiled_effect.clear();
         }
 
-        // If the effect has a parent, and that parent has no asset, also clear the
-        // child's compilation.
+        // If the effect has a parent, and that parent has no asset, also clear
+        // the child's compilation.
         if let Some(parent) = parent {
             if particle_layouts_and_parents.get(&parent.entity).is_none() {
                 compiled_effect.clear();
@@ -2221,9 +2232,9 @@ fn update_properties_from_asset(
 
     // Loop over all existing effects, including invisible ones
     for (effect, properties) in q_effects.iter_mut() {
-        // Check if the asset is available, otherwise silently ignore as we can't check
-        // for changes, and conceptually it makes no sense to render a particle
-        // effect whose asset was unloaded.
+        // Check if the asset is available, otherwise silently ignore as we
+        // can't check for changes, and conceptually it makes no sense
+        // to render a particle effect whose asset was unloaded.
         let Some(asset) = assets.get(&effect.handle) else {
             continue;
         };
@@ -2459,8 +2470,9 @@ else { return c1; }
             assert_eq!(SimulationSpace::Global.eval(&ctx).unwrap(), "");
         }
         {
-            // In the render context, the particle position is always available (either
-            // stored or not), so the simulation space can always be evaluated.
+            // In the render context, the particle position is always available
+            // (either stored or not), so the simulation space can
+            // always be evaluated.
             let texture_layout = TextureLayout::default();
             let ctx = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
@@ -2614,9 +2626,11 @@ else { return c1; }
                 let view_shader_handle =
                     asset_server.load::<Shader>("embedded://bevy_render/view.wesl");
 
-                // Need at least one frame tick for the loaded asset to send a message to the
-                // asset server to get registered
-                let mut max_frames = 10000; // it takes a decent amount of time to load async the asset, even if embedded
+                // Need at least one frame tick for the loaded asset to send a
+                // message to the asset server to get registered
+                let mut max_frames = 10000; // it takes a decent amount of time
+                                            // to load async the asset, even if
+                                            // embedded
                 while max_frames > 0 {
                     dummy_app.world_mut().run_schedule(PreUpdate);
 
@@ -2708,8 +2722,8 @@ else { return c1; }
             assert_eq!(entity, effect_entity);
             assert_eq!(particle_effect.handle, Handle::<EffectAsset>::default());
 
-            // `compile_effects()` cannot update the CompiledParticleEffect because the
-            // asset is invalid
+            // `compile_effects()` cannot update the CompiledParticleEffect
+            // because the asset is invalid
             assert_eq!(
                 compiled_particle_effect.asset,
                 Handle::<EffectAsset>::default()
@@ -2833,8 +2847,8 @@ else { return c1; }
                 } else {
                     SimulationCondition::Always
                 };
-                // Use local simulation space so we don't need to store Attribute::POSITION for
-                // particles
+                // Use local simulation space so we don't need to store
+                // Attribute::POSITION for particles
                 asset.simulation_space = SimulationSpace::Local;
                 let handle = assets.add(asset);
 
@@ -2870,7 +2884,8 @@ else { return c1; }
 
             // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {
-                // Simulated-when-visible effect (SimulationCondition::WhenVisible)
+                // Simulated-when-visible effect
+                // (SimulationCondition::WhenVisible)
 
                 let (
                     entity,
@@ -2897,13 +2912,14 @@ else { return c1; }
                 );
                 assert_eq!(particle_effect.handle, handle);
 
-                // `compile_effects()` always updates the CompiledParticleEffect of new effects,
-                // even if hidden
+                // `compile_effects()` always updates the CompiledParticleEffect
+                // of new effects, even if hidden
                 assert_eq!(compiled_particle_effect.asset, handle);
                 assert!(compiled_particle_effect.asset.is_strong());
                 assert!(compiled_particle_effect.effect_shader.is_some());
 
-                // Toggle visibility and tick once more; this shouldn't panic (regression; #182)
+                // Toggle visibility and tick once more; this shouldn't panic
+                // (regression; #182)
                 let (mut visibility, _) = world
                     .query::<(&mut Visibility, &ParticleEffect)>()
                     .iter_mut(world)
@@ -3066,9 +3082,10 @@ else { return c1; }
             SlotDimension::DepthCube,
             SlotDimension::DepthCubeArray,
         ] {
-            // The canonical WGSL name, which is what the SlotDimentions debug-format to,
-            // happens to always contain "array" if the texture is an array texture, "depth"
-            // if it's used for comparison, and "cube" if it's a cube texture. We use this
+            // The canonical WGSL name, which is what the SlotDimentions
+            // debug-format to, happens to always contain "array" if
+            // the texture is an array texture, "depth" if it's used
+            // for comparison, and "cube" if it's a cube texture. We use this
             // as validation.
             let name = format!("{:?}", dim).to_ascii_lowercase();
 

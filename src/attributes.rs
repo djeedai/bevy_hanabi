@@ -445,8 +445,8 @@ pub enum ValueType {
 
 impl Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // The enum variants are different enough we don't need to discriminate at this
-        // level
+        // The enum variants are different enough we don't need to discriminate
+        // at this level
         match self {
             ValueType::Scalar(s) => s.fmt(f),
             ValueType::Vector(v) => v.fmt(f),
@@ -1754,8 +1754,9 @@ impl ParticleLayoutBuilder {
         let index2 = index2 + (num2 / 2) * 2;
         let num2 = num2 % 2;
 
-        // Here we're aligned at 16 byte boundary. We have no more Float4, at most one
-        // Float2, and either some Float3 or some Float1 left (but never both).
+        // Here we're aligned at 16 byte boundary. We have no more Float4, at
+        // most one Float2, and either some Float3 or some Float1 left
+        // (but never both).
 
         // Enqueue all the Float3 if any, since it requires the largest align.
         if num3 > 0 {
@@ -1767,8 +1768,8 @@ impl ParticleLayoutBuilder {
                 attr.offset = offset;
                 layout.push(attr);
 
-                // The 32-bit padding after it. We know we don't have any Float1 to pad so we
-                // need a dummy padding field.
+                // The 32-bit padding after it. We know we don't have any Float1
+                // to pad so we need a dummy padding field.
                 let pad = AttributeLayout {
                     attribute: pads[next_pad],
                     offset: offset + 12,
@@ -1780,8 +1781,8 @@ impl ParticleLayoutBuilder {
             }
         }
 
-        // Here we're aligned at 16 byte boundary. We have no more Float4, at most one
-        // Float2, and possibly some Float1 left.
+        // Here we're aligned at 16 byte boundary. We have no more Float4, at
+        // most one Float2, and possibly some Float1 left.
 
         // Enqueue the Float2 if any
         if num2 > 0 {
@@ -2423,10 +2424,10 @@ mod tests {
             _ => panic!("Attribute should be reflected as a Struct"),
         }
 
-        // Mutating operators are not implemented by design; only hard-coded built-in
-        // attributes are supported. In any case that won't matter because you
-        // cannot call `as_reflect_mut()` since you cannot obtain a mutable reference to
-        // an attribute.
+        // Mutating operators are not implemented by design; only hard-coded
+        // built-in attributes are supported. In any case that won't
+        // matter because you cannot call `as_reflect_mut()` since you
+        // cannot obtain a mutable reference to an attribute.
         let r = attr.as_reflect_mut();
         match r.reflect_mut() {
             ReflectMut::Struct(s) => {
@@ -2461,8 +2462,9 @@ mod tests {
     fn attr_serde() {
         // All existing attributes can round-trip via serialization
         for attr in Attribute::ALL {
-            // Serialize; this produces just the name of the attribute, which    uniquely
-            // identifies it. The default value is never serialized.
+            // Serialize; this produces just the name of the attribute, which
+            // uniquely identifies it. The default value is never
+            // serialized.
             let ron = ron::to_string(&attr).unwrap();
             assert_eq!(ron, format!("\"{}\"", attr.name()));
 
