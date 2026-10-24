@@ -22,7 +22,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("ordering.txt");
 const DEMO_SUMMARY: &str = "Alpha blending and render order.";
-const DEMO_TAGS: &[&str] = &["blending"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Blending];
 
 declare_demo!("ordering");
 

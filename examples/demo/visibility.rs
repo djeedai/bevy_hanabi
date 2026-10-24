@@ -20,7 +20,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("visibility.txt");
 const DEMO_SUMMARY: &str = "Simulate while visible or all the time.";
-const DEMO_TAGS: &[&str] = &["visibility"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Visibility];
 
 declare_demo!("visibility");
 

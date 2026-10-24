@@ -20,7 +20,7 @@ use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("worms.txt");
 const DEMO_SUMMARY: &str = "Hierarchical effects and particle trails.";
-const DEMO_TAGS: &[&str] = &["expr", "trail"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Expr, super::DemoTag::Trail];
 
 declare_demo!("worms");
 

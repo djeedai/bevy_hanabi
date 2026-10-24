@@ -18,7 +18,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("init.txt");
 const DEMO_SUMMARY: &str = "Shape-based particle initialization.";
-const DEMO_TAGS: &[&str] = &["modifier"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Modifier];
 
 #[derive(Component)]
 struct RotateSpeed(pub f32);

@@ -22,7 +22,7 @@ use bevy_hanabi::prelude::*;
 
 const DEMO_DESC: &str = include_str!("portal.txt");
 const DEMO_SUMMARY: &str = "HDR glow with velocity-aligned particles.";
-const DEMO_TAGS: &[&str] = &["hdr", "modifier"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Hdr, super::DemoTag::Modifier];
 
 declare_demo!("portal");
 

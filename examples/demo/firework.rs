@@ -28,7 +28,8 @@ use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("firework.txt");
 const DEMO_SUMMARY: &str = "HDR, bloom, and trails.";
-const DEMO_TAGS: &[&str] = &["expr", "hdr", "trail"];
+const DEMO_TAGS: &[super::DemoTag] =
+    &[super::DemoTag::Expr, super::DemoTag::Hdr, super::DemoTag::Trail];
 
 declare_demo!("firework");
 

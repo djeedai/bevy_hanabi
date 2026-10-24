@@ -13,7 +13,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("gradient.txt");
 const DEMO_SUMMARY: &str = "Animate color, texture, and emitter motion.";
-const DEMO_TAGS: &[&str] = &["hdr", "texture"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Hdr, super::DemoTag::Texture];
 
 declare_demo!("gradient");
 

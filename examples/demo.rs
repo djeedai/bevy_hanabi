@@ -1,15 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ops::{Deref, DerefMut};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
 
+use bevy::input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin};
+use bevy::text::{EditableText, FontSource, TextCursorStyle, TextEditChange};
 use bevy::ui_widgets::{
-    Activate, Button, ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb,
+    Activate, Button, ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb, TextInput,
 };
 use bevy::{camera::visibility::RenderLayers, prelude::*};
 use bevy::{ecs::system::SystemParam, picking::hover::Hovered};
@@ -53,14 +54,78 @@ pub(crate) struct DemoSummary(pub(crate) &'static str);
 
 /// Concepts demonstrated by a demo.
 #[derive(Component, Clone, Copy)]
-pub(crate) struct DemoTags(pub(crate) &'static [&'static str]);
+pub(crate) struct DemoTags(pub(crate) &'static [DemoTag]);
+
+/// A consistent tag used to categorize demos.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum DemoTag {
+    TwoD,
+    AlphaMask,
+    Attributes,
+    Blending,
+    Camera,
+    Expr,
+    Flipbook,
+    Hdr,
+    Mesh,
+    Modifier,
+    Perf,
+    Properties,
+    Spawner,
+    Texture,
+    Trail,
+    Visibility,
+}
+
+impl DemoTag {
+    const ALL: &[Self] = &[
+        Self::TwoD,
+        Self::AlphaMask,
+        Self::Attributes,
+        Self::Blending,
+        Self::Camera,
+        Self::Expr,
+        Self::Flipbook,
+        Self::Hdr,
+        Self::Mesh,
+        Self::Modifier,
+        Self::Perf,
+        Self::Properties,
+        Self::Spawner,
+        Self::Texture,
+        Self::Trail,
+        Self::Visibility,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::TwoD => "2d",
+            Self::AlphaMask => "alphamask",
+            Self::Attributes => "attributes",
+            Self::Blending => "blending",
+            Self::Camera => "camera",
+            Self::Expr => "expr",
+            Self::Flipbook => "flipbook",
+            Self::Hdr => "hdr",
+            Self::Mesh => "mesh",
+            Self::Modifier => "modifier",
+            Self::Perf => "perf",
+            Self::Properties => "properties",
+            Self::Spawner => "spawner",
+            Self::Texture => "texture",
+            Self::Trail => "trail",
+            Self::Visibility => "visibility",
+        }
+    }
+}
 
 /// Declare a demo.
 ///
 /// The demo module must contain:
 /// - `DEMO_DESC: &'str` -- the demo description text
 /// - `DEMO_SUMMARY: &'str` -- the short menu summary
-/// - `DEMO_TAGS: &[&str]` -- concepts demonstrated by the demo
+/// - `DEMO_TAGS: &[DemoTag]` -- concepts demonstrated by the demo
 /// - `install()` -- the installation system
 /// - `effects()` -- the function returning the list of [`EffectAsset`] used by
 ///   the demo.
@@ -171,7 +236,28 @@ struct MenuButton(Entity);
 struct MenuRoot;
 
 #[derive(Component)]
+struct MenuDemoEntry {
+    name: &'static str,
+    tags: &'static [DemoTag],
+}
+
+#[derive(Component)]
+struct MenuTagButton(DemoTag);
+
+#[derive(Component)]
+struct MenuEmptyState;
+
+#[derive(Component)]
+struct MenuSearchInput;
+
+#[derive(Component)]
 struct MenuCamera;
+
+#[derive(Resource, Default)]
+struct MenuSearch {
+    name: String,
+    disabled_tags: HashSet<DemoTag>,
+}
 
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum DemoState {
@@ -272,12 +358,16 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
     };
     app.insert_resource(DemoSelection(selected))
         .init_resource::<PendingDemoSelection>()
+        .init_resource::<MenuSearch>()
         .init_state::<DemoState>();
 
     install_demo_state_systems(&mut app);
+    app.add_plugins(TabNavigationPlugin);
     app.add_systems(Startup, (spawn_menu, spawn_menu_camera))
-        .add_systems(Update, highlight_menu_buttons)
+        .add_systems(Update, (highlight_menu_buttons, update_menu_filter))
         .add_systems(Update, sync_demo_info.before(utils::update_demo_ui))
+        .add_observer(search_text_changed)
+        .add_observer(toggle_menu_tag)
         .add_observer(choose_demo);
 
     install_demos(&mut app);
@@ -381,24 +471,105 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Stretch,
                 justify_content: JustifyContent::Start,
-                padding: UiRect::all(Val::Px(12.)),
+                padding: UiRect::all(Val::Px(0.)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.055, 0.055, 0.06, 0.95)),
             BorderColor::all(Color::srgb(0.22, 0.22, 0.23)),
             ZIndex(1),
+            TabGroup::default(),
             MenuRoot,
         ))
         .with_children(|parent| {
-            parent.spawn((
-                Text::new("Hanabi demos"),
-                menu_font(19.),
-                TextColor(Color::WHITE),
-                Node {
-                    margin: UiRect::bottom(Val::Px(10.)),
-                    ..default()
-                },
-            ));
+            parent
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Stretch,
+                        row_gap: Val::Px(8.),
+                        padding: UiRect::all(Val::Px(12.)),
+                        margin: UiRect::bottom(Val::Px(10.)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.085, 0.085, 0.095)),
+                    BorderColor::all(Color::srgb(0.2, 0.2, 0.21)),
+                ))
+                .with_children(|header| {
+                    header.spawn((
+                        Text::new("Hanabi demos"),
+                        menu_font(19.),
+                        TextColor(Color::WHITE),
+                    ));
+
+                    header.spawn((
+                        Text::new("Search by name"),
+                        menu_font(10.),
+                        TextColor(Color::srgb(0.7, 0.7, 0.71)),
+                    ));
+
+                    header.spawn((
+                        Node {
+                            width: Val::Percent(100.),
+                            min_height: Val::Px(30.),
+                            padding: UiRect::horizontal(Val::Px(7.)),
+                            border: UiRect::all(Val::Px(1.)),
+                            border_radius: BorderRadius::all(Val::Px(4.)),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        TextInput,
+                        EditableText::new(""),
+                        TextCursorStyle::default(),
+                        TextLayout::no_wrap(),
+                        TabIndex(0),
+                        menu_font(12.),
+                        TextColor(Color::WHITE),
+                        BackgroundColor(Color::srgb(0.12, 0.12, 0.13)),
+                        BorderColor::all(Color::srgb(0.25, 0.25, 0.27)),
+                        MenuSearchInput,
+                    ));
+
+                    header
+                        .spawn(Node {
+                            width: Val::Percent(100.),
+                            flex_direction: FlexDirection::Row,
+                            flex_wrap: FlexWrap::Wrap,
+                            align_items: AlignItems::Center,
+                            column_gap: Val::Px(4.),
+                            row_gap: Val::Px(4.),
+                            ..default()
+                        })
+                        .with_children(|tags| {
+                            for tag in DemoTag::ALL {
+                                tags.spawn((
+                                    Button,
+                                    Node {
+                                        padding: UiRect {
+                                            left: Val::Px(5.),
+                                            right: Val::Px(5.),
+                                            top: Val::Px(3.),
+                                            bottom: Val::Px(3.),
+                                        },
+                                        border: UiRect::all(Val::Px(1.)),
+                                        border_radius: BorderRadius::all(Val::Percent(50.)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(menu_tag_color(*tag)),
+                                    BorderColor::all(Color::srgb(0.68, 0.68, 0.7)),
+                                    Hovered::default(),
+                                    MenuTagButton(*tag),
+                                ))
+                                .with_children(|pill| {
+                                    pill.spawn((
+                                        Text::new(tag.label()),
+                                        menu_font(10.),
+                                        TextColor(Color::srgb(0.92, 0.92, 0.92)),
+                                    ));
+                                });
+                            }
+                        });
+                });
 
             parent
                 .spawn(Node {
@@ -408,6 +579,12 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                     align_items: AlignItems::Stretch,
                     justify_content: JustifyContent::Start,
                     column_gap: Val::Px(6.),
+                    padding: UiRect {
+                        left: Val::Px(12.),
+                        right: Val::Px(12.),
+                        top: Val::Px(0.),
+                        bottom: Val::Px(12.),
+                    },
                     ..default()
                 })
                 .with_children(|body| {
@@ -428,6 +605,18 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                             ScrollPosition::default(),
                         ))
                         .with_children(|grid| {
+                            grid.spawn((
+                                Node {
+                                    display: Display::None,
+                                    padding: UiRect::all(Val::Px(8.)),
+                                    ..default()
+                                },
+                                Text::new("No demos match your search."),
+                                menu_font(11.),
+                                TextColor(Color::srgb(0.7, 0.7, 0.71)),
+                                MenuEmptyState,
+                            ));
+
                             for (entity, demo, summary, tags) in &demos {
                                 grid.spawn((
                                     Button,
@@ -447,6 +636,10 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                     BorderColor::all(Color::srgb(0.2, 0.2, 0.21)),
                                     Hovered::default(),
                                     MenuButton(*entity),
+                                    MenuDemoEntry {
+                                        name: demo.0,
+                                        tags: tags.0,
+                                    },
                                 ))
                                 .with_children(|button| {
                                     button
@@ -479,11 +672,11 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                                             ),
                                                             ..default()
                                                         },
-                                                        BackgroundColor(menu_tag_color(tag)),
+                                                        BackgroundColor(menu_tag_color(*tag)),
                                                     ))
                                                     .with_children(|chip| {
                                                         chip.spawn((
-                                                            Text::new(*tag),
+                                                            Text::new(tag.label()),
                                                             menu_font(10.),
                                                             TextColor(Color::srgb(
                                                                 0.92, 0.92, 0.92,
@@ -530,18 +723,103 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
 }
 
 fn menu_font(size: f32) -> TextFont {
-    TextFont::from_font_size(size)
+    TextFont {
+        font: FontSource::list([FontSource::system_ui(), FontSource::default()]),
+        ..TextFont::from_font_size(size)
+    }
 }
 
-fn menu_tag_color(tag: &str) -> Color {
+fn menu_tag_color(tag: DemoTag) -> Color {
     match tag {
-        "expr" => Color::srgb(0.64, 0.42, 0.42),
-        "hdr" | "camera" | "visibility" | "blending" | "flipbook" | "texture" | "alphamask" => {
-            Color::srgb(0.51, 0.42, 0.31)
-        }
-        "trail" => Color::srgb(0.35, 0.42, 0.43),
-        "modifier" => Color::srgb(0.35, 0.43, 0.38),
+        DemoTag::Expr => Color::srgb(0.64, 0.42, 0.42),
+        DemoTag::Hdr
+        | DemoTag::Camera
+        | DemoTag::Visibility
+        | DemoTag::Blending
+        | DemoTag::Flipbook
+        | DemoTag::Texture
+        | DemoTag::AlphaMask => Color::srgb(0.51, 0.42, 0.31),
+        DemoTag::Trail => Color::srgb(0.35, 0.42, 0.43),
+        DemoTag::Modifier => Color::srgb(0.35, 0.43, 0.38),
         _ => Color::srgb(0.38, 0.38, 0.38),
+    }
+}
+
+fn search_text_changed(
+    on: On<TextEditChange>,
+    inputs: Query<&EditableText, With<MenuSearchInput>>,
+    mut search: ResMut<MenuSearch>,
+) {
+    let Ok(input) = inputs.get(on.event_target()) else {
+        return;
+    };
+
+    search.name.clear();
+    for part in input.value() {
+        search.name.push_str(part);
+    }
+}
+
+fn toggle_menu_tag(
+    activate: On<Activate>,
+    buttons: Query<&MenuTagButton>,
+    mut search: ResMut<MenuSearch>,
+) {
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+
+    if !search.disabled_tags.remove(&button.0) {
+        search.disabled_tags.insert(button.0);
+    }
+}
+
+fn update_menu_filter(
+    search: Res<MenuSearch>,
+    mut demos: Query<(&MenuDemoEntry, &mut Node), Without<MenuEmptyState>>,
+    mut empty_state: Query<&mut Node, With<MenuEmptyState>>,
+    mut tag_buttons: Query<(&MenuTagButton, &mut BackgroundColor, &mut BorderColor)>,
+) {
+    if !search.is_changed() {
+        return;
+    }
+
+    let name = search.name.to_lowercase();
+    let mut visible_count = 0;
+    for (demo, mut node) in &mut demos {
+        let name_matches = name.is_empty() || demo.name.to_lowercase().contains(&name);
+        let tag_matches = demo
+            .tags
+            .iter()
+            .any(|tag| !search.disabled_tags.contains(tag));
+        let visible = name_matches && tag_matches;
+        node.display = if visible {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        visible_count += usize::from(visible);
+    }
+    if let Ok(mut node) = empty_state.single_mut() {
+        node.display = if visible_count == 0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+
+    for (tag, mut background, mut border) in &mut tag_buttons {
+        let active = !search.disabled_tags.contains(&tag.0);
+        background.0 = if active {
+            menu_tag_color(tag.0)
+        } else {
+            Color::srgb(0.12, 0.12, 0.13)
+        };
+        border.set_all(if active {
+            Color::srgb(0.68, 0.68, 0.7)
+        } else {
+            Color::srgb(0.24, 0.24, 0.25)
+        });
     }
 }
 
@@ -841,6 +1119,92 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn menu_search_combines_case_insensitive_name_and_tag_filters() {
+        let mut app = App::new();
+        app.init_resource::<MenuSearch>()
+            .add_systems(Update, update_menu_filter);
+        app.world_mut().spawn((
+            Node::default(),
+            MenuDemoEntry {
+                name: "Firework",
+                tags: &[DemoTag::Expr, DemoTag::Hdr],
+            },
+        ));
+        app.world_mut().spawn((
+            Node::default(),
+            MenuDemoEntry {
+                name: "Puffs",
+                tags: &[DemoTag::Mesh],
+            },
+        ));
+        app.world_mut().spawn((
+            Node::default(),
+            MenuDemoEntry {
+                name: "Expression-only",
+                tags: &[DemoTag::Expr],
+            },
+        ));
+        for tag in DemoTag::ALL {
+            app.world_mut().spawn((
+                MenuTagButton(*tag),
+                BackgroundColor(menu_tag_color(*tag)),
+                BorderColor::all(Color::srgb(0.68, 0.68, 0.7)),
+            ));
+        }
+
+        let visible_names = |app: &mut App| {
+            let mut entries = app.world_mut().query::<(&MenuDemoEntry, &Node)>();
+            entries
+                .iter(app.world())
+                .filter(|(_, node)| node.display != Display::None)
+                .map(|(entry, _)| entry.name)
+                .collect::<HashSet<_>>()
+        };
+        let highlighted_tags = |app: &mut App| {
+            let mut tags = app
+                .world_mut()
+                .query::<(&MenuTagButton, &BackgroundColor)>();
+            tags.iter(app.world())
+                .filter(|(tag, background)| background.0 == menu_tag_color(tag.0))
+                .map(|(tag, _)| tag.0)
+                .collect::<HashSet<_>>()
+        };
+
+        app.update();
+        assert_eq!(
+            visible_names(&mut app),
+            HashSet::from(["Firework", "Puffs", "Expression-only"])
+        );
+        assert_eq!(
+            highlighted_tags(&mut app),
+            DemoTag::ALL.iter().copied().collect()
+        );
+
+        app.world_mut().resource_mut::<MenuSearch>().name = "FIRE".to_string();
+        app.update();
+        assert_eq!(visible_names(&mut app), HashSet::from(["Firework"]));
+
+        {
+            let mut search = app.world_mut().resource_mut::<MenuSearch>();
+            search.name.clear();
+            search.disabled_tags.insert(DemoTag::Expr);
+        }
+        app.update();
+        assert_eq!(
+            visible_names(&mut app),
+            HashSet::from(["Firework", "Puffs"])
+        );
+        assert!(!highlighted_tags(&mut app).contains(&DemoTag::Expr));
+
+        app.world_mut()
+            .resource_mut::<MenuSearch>()
+            .disabled_tags
+            .insert(DemoTag::Hdr);
+        app.update();
+        assert_eq!(visible_names(&mut app), HashSet::from(["Puffs"]));
     }
 
     #[test]

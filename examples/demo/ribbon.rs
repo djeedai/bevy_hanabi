@@ -78,7 +78,7 @@ const PARTICLE_CAPACITY: u32 = 100;
 
 const DEMO_DESC: &str = include_str!("ribbon.txt");
 const DEMO_SUMMARY: &str = "Build trails from ribbon particles.";
-const DEMO_TAGS: &[&str] = &["expr", "trail"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Expr, super::DemoTag::Trail];
 
 const RIBBON_SPAWN_INTERVAL: f32 = 2.0;
 const RIBBON_DESPAWN_AFTER: f32 = 10.0;

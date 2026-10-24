@@ -18,7 +18,7 @@ use bevy_hanabi::prelude::*;
 
 const DEMO_DESC: &str = include_str!("expr.txt");
 const DEMO_SUMMARY: &str = "GPU-driven animation with expressions.";
-const DEMO_TAGS: &[&str] = &["expr"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Expr];
 
 declare_demo!("expr");
 

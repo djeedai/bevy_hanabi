@@ -26,7 +26,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("activate.txt");
 const DEMO_SUMMARY: &str = "Toggle the CPU spawner at runtime.";
-const DEMO_TAGS: &[&str] = &["spawner"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Spawner];
 
 declare_demo!("activate");
 

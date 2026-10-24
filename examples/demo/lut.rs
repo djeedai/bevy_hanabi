@@ -31,7 +31,7 @@ use wgpu::{Extent3d, TextureFormat};
 
 const DEMO_DESC: &str = include_str!("lut.txt");
 const DEMO_SUMMARY: &str = "Sample particle colors from a texture LUT.";
-const DEMO_TAGS: &[&str] = &["texture", "properties"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Texture, super::DemoTag::Properties];
 
 declare_demo!("lut");
 

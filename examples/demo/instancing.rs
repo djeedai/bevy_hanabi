@@ -18,7 +18,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("instancing.txt");
 const DEMO_SUMMARY: &str = "Spawn and remove many effect instances.";
-const DEMO_TAGS: &[&str] = &["perf"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Perf];
 
 /// Per-effect instance Hue offset, to show that all instances are unique.
 #[derive(Component)]

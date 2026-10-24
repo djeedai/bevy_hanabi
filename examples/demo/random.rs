@@ -12,7 +12,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("random.txt");
 const DEMO_SUMMARY: &str = "Randomized particle spawning.";
-const DEMO_TAGS: &[&str] = &["expr"];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Expr];
 
 declare_demo!("random");
 
