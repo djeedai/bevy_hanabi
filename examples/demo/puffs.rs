@@ -2,8 +2,9 @@
 //!
 //! This example creates cartoony smoke puffs out of spherical meshes.
 
-use std::f32::consts::FRAC_PI_2;
+use std::{borrow::Cow, error::Error, f32::consts::FRAC_PI_2};
 
+use super::DemoCommands as Commands;
 use bevy::{
     camera::Hdr,
     color::palettes::css::FOREST_GREEN,
@@ -13,7 +14,6 @@ use bevy::{
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 use serde::{Deserialize, Serialize};
 
 const DEMO_DESC: &str = include_str!("puffs.txt");
@@ -56,10 +56,10 @@ fn install(app: &mut App, entity: Entity) {
             OnEnter(super::DemoState::Running),
             setup.run_if(super::demo_selected(entity)),
         )
-    .add_systems(
-        Update,
-        setup_scene_once_loaded.run_if(super::demo_running(entity)),
-    );
+        .add_systems(
+            Update,
+            setup_scene_once_loaded.run_if(super::demo_running(entity)),
+        );
 }
 
 // Performs initialization of the scene.
@@ -245,8 +245,8 @@ impl Modifier for LambertianLightingModifier {
         Some(self)
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {

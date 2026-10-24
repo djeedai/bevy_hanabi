@@ -4,6 +4,8 @@
 //! useful to initialize the position at spawn time, but can occasionally be
 //! used during simulation update to enforce a particular position.
 
+use std::borrow::Cow;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -115,8 +117,8 @@ impl Modifier for SetPositionCircleModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -218,8 +220,8 @@ impl Modifier for SetPositionSphereModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -331,8 +333,8 @@ impl Modifier for SetPositionCone3dModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -463,8 +465,8 @@ impl Modifier for SetPositionBoxModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
