@@ -189,6 +189,7 @@ fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
         Camera3d::default(),
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom::default(),
     ));
 

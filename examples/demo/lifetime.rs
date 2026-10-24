@@ -145,6 +145,7 @@ fn setup(
         Transform::from_translation(Vec3::Z * 180.),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn(DirectionalLight {

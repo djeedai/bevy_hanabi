@@ -84,6 +84,7 @@ fn setup(
         Camera3d::default(),
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         // For this example, we assign to the camera a specific render layer (3)
         // different from the default (0) to demonstrate it works.
         RenderLayers::layer(3),

@@ -147,6 +147,7 @@ fn setup(
             ..default()
         }),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");

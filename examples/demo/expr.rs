@@ -99,6 +99,7 @@ fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
         },
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom::default(),
     ));
 

@@ -13,7 +13,10 @@
 use std::time::Duration;
 
 use super::DemoCommands as Commands;
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 use crate::utils;
@@ -90,6 +93,7 @@ fn setup(
         Transform::from_translation(Vec3::Z * 100.),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn(DirectionalLight {

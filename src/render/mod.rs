@@ -7,7 +7,6 @@ use std::{
     time::Duration,
     vec,
 };
-use thiserror::Error;
 
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
@@ -67,6 +66,7 @@ use effect_cache::{CachedEffect, EffectSlice, SlabState};
 use event::{CachedChildInfo, CachedEffectEvents, CachedParentInfo, GpuChildInfo};
 use fixedbitset::FixedBitSet;
 use gpu_buffer::GpuBuffer;
+use thiserror::Error;
 
 use crate::{
     asset::{DefaultMesh, EffectAsset},
