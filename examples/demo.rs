@@ -559,7 +559,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                         .spawn((
                             Node {
                                 width: Val::Percent(100.),
-                                min_height: Val::Px(30.),
+                                height: Val::Px(30.),
                                 border: UiRect::all(Val::Px(1.)),
                                 border_radius: BorderRadius::all(Val::Px(4.)),
                                 flex_direction: FlexDirection::Column,
@@ -574,8 +574,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                     Node {
                                         width: Val::Percent(100.),
                                         flex_grow: 1.,
-                                        padding: UiRect::horizontal(Val::Px(7.)),
-                                        align_items: AlignItems::Center,
+                                        align_items: AlignItems::Stretch,
                                         ..default()
                                     },
                                     MenuSearchInputContent,
@@ -584,6 +583,8 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                     content.spawn((
                                         Node {
                                             width: Val::Percent(100.),
+                                            padding: UiRect::axes(Val::Px(3.), Val::Px(7.)),
+                                            align_self: AlignSelf::Center,
                                             ..default()
                                         },
                                         TextInput,
@@ -607,6 +608,10 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                 // remove its top and side borders, make it transparent, and only
                                 // use its bottom border as shape.
                                 Node {
+                                    position_type: PositionType::Absolute,
+                                    left: Val::Px(0.),
+                                    right: Val::Px(0.),
+                                    bottom: Val::Px(0.),
                                     height: Val::Px(4.),
                                     border: UiRect::bottom(Val::Px(2.)),
                                     border_radius: BorderRadius::new(
