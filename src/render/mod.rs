@@ -7,6 +7,7 @@ use std::{
     time::Duration,
     vec,
 };
+use thiserror::Error;
 
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
@@ -4906,6 +4907,18 @@ struct Material {
     textures: Vec<AssetId<Image>>,
 }
 
+#[derive(Debug, Error)]
+pub(super) enum MaterialBindingError {
+    #[error("Expected {0} textures from layout, but got {1} instead.")]
+    InvalidTextureCount(u32, u32),
+    #[error("Missing GPU image for asset {0:?}.")]
+    MissingImage(AssetId<Image>),
+    #[error("Multisamples images are not supported.")]
+    MultisampledImage,
+    #[error("Incompatible image bound at texture slot '{0}'.")]
+    IncompatibleImage(String),
+}
+
 impl Material {
     /// Get the bind group entries to create a bind group.
     pub fn append_binding_entries<'a, 'b>(
@@ -4913,22 +4926,25 @@ impl Material {
         binding_start: u32,
         gpu_images: &'a RenderAssets<GpuImage>,
         entries: &'b mut Vec<BindGroupEntry<'a>>,
-    ) -> bool {
+    ) -> Result<(), MaterialBindingError> {
         if self.layout.layout.len() != self.textures.len() {
-            return false;
+            return Err(MaterialBindingError::InvalidTextureCount(
+                self.layout.layout.len() as u32,
+                self.textures.len() as u32,
+            ));
         }
 
         if self.textures.is_empty() {
-            return true;
+            return Ok(());
         }
 
         let mut index = binding_start;
         for (slot, asset_id) in self.layout.layout.iter().zip(self.textures.iter()) {
             let Some(gpu_image) = gpu_images.get(*asset_id) else {
-                return false;
+                return Err(MaterialBindingError::MissingImage(*asset_id));
             };
             if gpu_image.texture_descriptor.sample_count > 1 {
-                return false;
+                return Err(MaterialBindingError::MultisampledImage);
             }
             if !slot.accepts(
                 gpu_image.texture_descriptor.dimension,
@@ -4938,7 +4954,7 @@ impl Material {
                     .format
                     .is_depth_stencil_format(),
             ) {
-                return false;
+                return Err(MaterialBindingError::IncompatibleImage(slot.name.clone()));
             }
             entries.push(BindGroupEntry {
                 binding: index,
@@ -4950,7 +4966,7 @@ impl Material {
             });
             index += 2;
         }
-        true
+        Ok(())
     }
 }
 
@@ -6572,7 +6588,19 @@ pub(crate) fn prepare_bind_groups(
             &pipeline_cache,
             &gpu_images,
         ) {
-            error!("Failed to create property bind group for effect batch: {err:?}");
+            match err {
+                property::PropertyBindGroupError::Material(MaterialBindingError::MissingImage(
+                    image,
+                )) => trace!(
+                    "Skipping effect batch {:?}: image {:?} is not available on the GPU yet.",
+                    effect_batch.handle,
+                    image,
+                ),
+                property::PropertyBindGroupError::MissingPropertyBuffer(buffer_index) => {
+                    error!("Missing property buffer #{buffer_index}, referenced by effect batch.")
+                }
+                err => error!("Failed to create property bind group for effect batch: {err:?}"),
+            }
             continue;
         }
 
@@ -6767,6 +6795,14 @@ fn draw<'w>(
     let mesh_allocator = mesh_allocator.into_inner();
     let effect_draw_batch = effect_draw_batches.get(entity.0).unwrap();
     let effect_batch = batcher.get(effect_draw_batch.effect_batch_index).unwrap();
+    let Some(property_bind_group) = property_bind_groups.get(&effect_batch.property_key, false)
+    else {
+        trace!(
+            "Missing spawner@2 bind group for effect batch {:?}; skipping draw.",
+            effect_batch.handle,
+        );
+        return;
+    };
 
     let Some(pipeline) = pipeline_cache.into_inner().get_render_pipeline(pipeline_id) else {
         trace!("ERROR: Failed to find render pipeline ID {:?}", pipeline_id);
@@ -6839,7 +6875,6 @@ fn draw<'w>(
             //     draw_indirect_offset,
             //     effect_batch.effect_count,
             // );
-            let with_prefix_sum = false; // per-effect, no draw batching
             trace!(
                 "Emit non-batched draw_indexed_indirect() for {} effect instances...",
                 effect_batch.effect_data.len()
@@ -6847,9 +6882,7 @@ fn draw<'w>(
             for effect_data in &effect_batch.effect_data {
                 pass.set_bind_group(
                     2,
-                    property_bind_groups
-                        .get(&effect_batch.property_key, with_prefix_sum)
-                        .unwrap(),
+                    property_bind_group,
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
@@ -6876,7 +6909,6 @@ fn draw<'w>(
             //     draw_indirect_offset,
             //     effect_batch.effect_count,
             // );
-            let with_prefix_sum = false; // per-effect, no draw batching
             trace!(
                 "Emit non-batched draw_indirect() for {} effect instances...",
                 effect_batch.effect_data.len()
@@ -6884,9 +6916,7 @@ fn draw<'w>(
             for effect_data in &effect_batch.effect_data {
                 pass.set_bind_group(
                     2,
-                    property_bind_groups
-                        .get(&effect_batch.property_key, with_prefix_sum)
-                        .unwrap(),
+                    property_bind_group,
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
@@ -7202,6 +7232,16 @@ fn simulate(
                 }
             }
 
+            let Some(property_bind_group) =
+                property_bind_groups.get(&effect_batch.property_key, true)
+            else {
+                trace!(
+                    "Missing spawner@2 bind group for effect batch {:?}; skipping init.",
+                    effect_batch.handle,
+                );
+                continue;
+            };
+
             // Fetch bind group particle@1
             let Some(particle_bind_group) =
                 effect_cache.particle_sim_bind_group(&effect_batch.slab_id)
@@ -7243,13 +7283,7 @@ fn simulate(
 
             // Setup init pass
             compute_pass.set_bind_group(1, particle_bind_group, &[]);
-            compute_pass.set_bind_group(
-                2,
-                property_bind_groups
-                    .get(&effect_batch.property_key, true)
-                    .unwrap(),
-                &[batch_info_offset],
-            );
+            compute_pass.set_bind_group(2, property_bind_group, &[batch_info_offset]);
             compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
 
             // Dispatch init job
@@ -7430,6 +7464,16 @@ fn simulate(
 
         // Dispatch update compute jobs
         for effect_batch in batcher.iter() {
+            let Some(property_bind_group) =
+                property_bind_groups.get(&effect_batch.property_key, true)
+            else {
+                trace!(
+                    "Missing spawner@2 bind group for effect batch {:?}; skipping update.",
+                    effect_batch.handle,
+                );
+                continue;
+            };
+
             // Remember if we need to sort any effect, for next pass
             if effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
                 needs_sort = true;
@@ -7484,13 +7528,7 @@ fn simulate(
 
             // Setup update pass
             compute_pass.set_bind_group(1, particle_bind_group, &[]);
-            compute_pass.set_bind_group(
-                2,
-                property_bind_groups
-                    .get(&effect_batch.property_key, true)
-                    .unwrap(),
-                &[batch_info_offset],
-            );
+            compute_pass.set_bind_group(2, property_bind_group, &[batch_info_offset]);
             compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
 
             // Dispatch update job
@@ -7868,11 +7906,34 @@ impl From<LayoutFlags> for ParticleRenderAlphaMaskPipelineKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{SlotDimension, TextureSlot};
 
     #[test]
     fn layout_flags() {
         let flags = LayoutFlags::default();
         assert_eq!(flags, LayoutFlags::NONE);
+    }
+
+    #[test]
+    fn missing_material_image_does_not_append_bindings() {
+        let image = Handle::<Image>::default().id();
+        let material = Material {
+            layout: TextureLayout {
+                layout: vec![TextureSlot {
+                    name: "texture".to_string(),
+                    dimension: SlotDimension::D2,
+                }],
+            },
+            textures: vec![image],
+        };
+        let gpu_images = RenderAssets::<GpuImage>::default();
+        let mut entries = Vec::new();
+
+        assert!(matches!(
+            material.append_binding_entries(4, &gpu_images, &mut entries),
+            Err(MaterialBindingError::MissingImage(missing)) if missing == image
+        ));
+        assert!(entries.is_empty());
     }
 
     #[cfg(feature = "gpu_tests")]
