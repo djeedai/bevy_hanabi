@@ -6,7 +6,10 @@
 //! providing total control to the application.
 
 use bevy::{
-    camera::ScalingMode, core_pipeline::tonemapping::Tonemapping, math::Vec3Swizzles, prelude::*,
+    camera::ScalingMode,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    math::Vec3Swizzles,
+    prelude::*,
 };
 use bevy_hanabi::prelude::*;
 
@@ -49,6 +52,7 @@ fn setup(
         Camera3d::default(),
         Projection::Orthographic(projection),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn((

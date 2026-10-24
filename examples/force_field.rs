@@ -14,7 +14,10 @@
 //! to the projection on screen; however those particles are actually at a
 //! different depth, in front or behind the sphere.
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -58,6 +61,7 @@ fn setup(
         Camera3d::default(),
         Projection::Orthographic(projection),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn((PointLight::default(), Transform::from_xyz(4.0, 5.0, 4.0)));

@@ -1,5 +1,5 @@
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     prelude::*,
     render::settings::{WgpuLimits, WgpuSettings},
 };
@@ -61,6 +61,7 @@ fn setup(
         Transform::from_translation(Vec3::Z * 100.),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn(DirectionalLight {

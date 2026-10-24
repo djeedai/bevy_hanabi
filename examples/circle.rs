@@ -5,7 +5,10 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 mod texutils;
@@ -37,6 +40,7 @@ fn setup(
         Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     // Procedurally create a sprite sheet representing an animated texture

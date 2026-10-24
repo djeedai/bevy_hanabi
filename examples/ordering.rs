@@ -10,7 +10,10 @@
 //! therefore ensure that the rectangles in front and behind the particle effect
 //! do not overlap the bounding box of the effect itself.
 use bevy::{
-    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    camera::Hdr,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    post_process::bloom::Bloom,
+    prelude::*,
 };
 use bevy_hanabi::prelude::*;
 
@@ -107,6 +110,7 @@ fn setup(
         Camera3d::default(),
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom::default(),
     ));
 

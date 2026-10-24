@@ -2,7 +2,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
     camera::{visibility::RenderLayers, Viewport},
-    core_pipeline::tonemapping::Tonemapping,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     math::EulerRot,
     prelude::*,
     window::WindowResized,
@@ -122,6 +122,7 @@ fn setup(
             },
             Camera3d::default(),
             Tonemapping::None,
+            DebandDither::Disabled,
             SplitCamera {
                 pos: UVec2::new(i as u32 % 2, i as u32 / 2),
             },

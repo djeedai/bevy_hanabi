@@ -1,6 +1,11 @@
 //! Test that an empty (invalid) bundle doesn't produce any error.
 
-use bevy::{app::AppExit, core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{
+    app::AppExit,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    log::LogPlugin,
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]
@@ -24,7 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn((Camera3d::default(), Tonemapping::None));
+    commands.spawn((
+        Camera3d::default(),
+        Tonemapping::None,
+        DebandDither::Disabled,
+    ));
     commands.spawn(ParticleEffect::default());
 }
 

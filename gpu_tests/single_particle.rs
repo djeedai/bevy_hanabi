@@ -1,6 +1,11 @@
 //! Test that an effect with a single particle renders it.
 
-use bevy::{app::AppExit, core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{
+    app::AppExit,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    log::LogPlugin,
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]
@@ -32,6 +37,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
             ..default()
         },
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     let mut module = Module::default();

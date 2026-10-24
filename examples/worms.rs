@@ -10,7 +10,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
     camera::Hdr,
-    core_pipeline::tonemapping::Tonemapping,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     math::{vec3, vec4},
     post_process::bloom::Bloom,
     prelude::*,
@@ -198,6 +198,7 @@ fn setup(
         Camera3d::default(),
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom::default(),
     ));
 

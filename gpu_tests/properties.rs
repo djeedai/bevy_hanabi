@@ -8,7 +8,12 @@
 //! gracefully re-create any GPU bind group layout and bind group without any
 //! property reference.
 
-use bevy::{app::AppExit, core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{
+    app::AppExit,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    log::LogPlugin,
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]
@@ -40,7 +45,11 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
     asset.name = "test_asset".to_string();
     let handle = assets.add(asset);
 
-    commands.spawn((Camera3d::default(), Tonemapping::None));
+    commands.spawn((
+        Camera3d::default(),
+        Tonemapping::None,
+        DebandDither::Disabled,
+    ));
     commands.spawn(ParticleEffect::new(handle));
 }
 

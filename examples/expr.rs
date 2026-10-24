@@ -8,7 +8,10 @@
 //! based on [`ExprWriter::time()`] then assigned to the [`AccelModifier`].
 
 use bevy::{
-    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    camera::Hdr,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    post_process::bloom::Bloom,
+    prelude::*,
 };
 use bevy_hanabi::prelude::*;
 
@@ -36,6 +39,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         },
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom::default(),
     ));
 
