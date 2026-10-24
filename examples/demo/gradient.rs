@@ -12,6 +12,8 @@ use bevy_hanabi::prelude::*;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("gradient.txt");
+const DEMO_SUMMARY: &str = "Animate color, texture, and emitter motion.";
+const DEMO_TAGS: &[&str] = &["hdr", "texture"];
 
 declare_demo!("gradient");
 

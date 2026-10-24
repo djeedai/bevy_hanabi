@@ -15,6 +15,8 @@ use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("spawn_on_command.txt");
+const DEMO_SUMMARY: &str = "Trigger spawning from CPU with properties.";
+const DEMO_TAGS: &[&str] = &["spawner", "properties"];
 
 declare_demo!("spawn_on_command");
 

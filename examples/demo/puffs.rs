@@ -17,6 +17,8 @@ use super::DemoCommands as Commands;
 use serde::{Deserialize, Serialize};
 
 const DEMO_DESC: &str = include_str!("puffs.txt");
+const DEMO_SUMMARY: &str = "Render particles as 3D meshes.";
+const DEMO_TAGS: &[&str] = &["mesh"];
 
 // A simple custom modifier that lights the meshes with Lambertian lighting.
 // Other lighting models are possible, up to and including PBR.

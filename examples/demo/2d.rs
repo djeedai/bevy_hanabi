@@ -5,6 +5,8 @@ use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("2d.txt");
+const DEMO_SUMMARY: &str = "2D particles with depth-layered rendering.";
+const DEMO_TAGS: &[&str] = &["2d"];
 
 #[derive(Component)]
 struct ReferenceSquare;

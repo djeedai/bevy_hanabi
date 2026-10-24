@@ -27,6 +27,8 @@ use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("firework.txt");
+const DEMO_SUMMARY: &str = "HDR, bloom, and trails.";
+const DEMO_TAGS: &[&str] = &["expr", "hdr", "trail"];
 
 declare_demo!("firework");
 

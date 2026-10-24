@@ -17,6 +17,8 @@ use rand::RngExt;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("instancing.txt");
+const DEMO_SUMMARY: &str = "Spawn and remove many effect instances.";
+const DEMO_TAGS: &[&str] = &["perf"];
 
 /// Per-effect instance Hue offset, to show that all instances are unique.
 #[derive(Component)]

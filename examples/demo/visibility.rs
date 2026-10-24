@@ -19,6 +19,8 @@ use bevy_hanabi::prelude::*;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("visibility.txt");
+const DEMO_SUMMARY: &str = "Simulate while visible or all the time.";
+const DEMO_TAGS: &[&str] = &["visibility"];
 
 declare_demo!("visibility");
 

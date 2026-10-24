@@ -14,6 +14,8 @@ use crate::utils;
 use crate::texutils::make_anim_img;
 
 const DEMO_DESC: &str = include_str!("circle.txt");
+const DEMO_SUMMARY: &str = "Animate particle textures with flipbooks.";
+const DEMO_TAGS: &[&str] = &["flipbook", "texture"];
 
 declare_demo!("circle");
 

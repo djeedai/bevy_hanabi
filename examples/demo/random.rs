@@ -11,6 +11,8 @@ use super::DemoCommands as Commands;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("random.txt");
+const DEMO_SUMMARY: &str = "Randomized particle spawning.";
+const DEMO_TAGS: &[&str] = &["expr"];
 
 declare_demo!("random");
 

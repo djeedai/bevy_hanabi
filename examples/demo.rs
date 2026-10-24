@@ -8,13 +8,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy::ui_widgets::{Activate, Button};
+use bevy::ui_widgets::{
+    Activate, Button, ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb,
+};
 use bevy::{camera::visibility::RenderLayers, prelude::*};
 use bevy::{ecs::system::SystemParam, picking::hover::Hovered};
 use bevy_hanabi::prelude::*;
 
 mod utils;
 use utils::AppExitIntoResult;
+
+const MENU_WIDTH: f32 = 320.;
+const MENU_GAP: f32 = 16.;
 
 #[derive(Component, Clone)]
 pub(crate) struct DemoInfo {
@@ -42,10 +47,20 @@ pub(crate) struct DemoName(pub(crate) &'static str);
 #[derive(Component, Clone, Copy)]
 pub(crate) struct DemoDescription(pub(crate) &'static str);
 
+/// Short menu summary of a demo.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct DemoSummary(pub(crate) &'static str);
+
+/// Concepts demonstrated by a demo.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct DemoTags(pub(crate) &'static [&'static str]);
+
 /// Declare a demo.
 ///
 /// The demo module must contain:
 /// - `DEMO_DESC: &'str` -- the demo description text
+/// - `DEMO_SUMMARY: &'str` -- the short menu summary
+/// - `DEMO_TAGS: &[&str]` -- concepts demonstrated by the demo
 /// - `install()` -- the installation system
 /// - `effects()` -- the function returning the list of [`EffectAsset`] used by
 ///   the demo.
@@ -56,6 +71,8 @@ macro_rules! declare_demo {
                 super::Demo::new(install, effects),
                 super::DemoName($name),
                 super::DemoDescription(DEMO_DESC),
+                super::DemoSummary(DEMO_SUMMARY),
+                super::DemoTags(DEMO_TAGS),
             ));
         }
     };
@@ -236,6 +253,10 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
 
     let mut app = utils::DemoApp::new("Demo Browser")
         .with_desc("Select a demo from the menu.")
+        .with_desc_position(utils::DescPosition::RightColumn {
+            left: Val::Px(MENU_WIDTH + MENU_GAP),
+            top: Val::Px(MENU_GAP),
+        })
         .build();
     insert_demos(app.world_mut());
     app.world_mut().resource_mut::<utils::Demo>().show_ui = false;
@@ -344,73 +365,184 @@ fn sync_demo_info(
     }
 }
 
-fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName)>) {
+fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSummary, &DemoTags)>) {
+    let mut demos = demos.iter().collect::<Vec<_>>();
+    demos.sort_by_key(|(_, name, _, _)| name.0);
+
     commands
         .spawn((
             Node {
-                width: Val::Px(220.),
+                width: Val::Px(MENU_WIDTH),
                 height: Val::Percent(100.),
                 position_type: PositionType::Absolute,
                 top: Val::Px(0.),
-                right: Val::Px(0.),
+                left: Val::Px(0.),
+                border: UiRect::right(Val::Px(1.)),
                 flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
+                align_items: AlignItems::Stretch,
                 justify_content: JustifyContent::Start,
-                row_gap: Val::Px(4.),
-                padding: UiRect::all(Val::Px(8.)),
-                overflow: Overflow::clip_y(),
+                padding: UiRect::all(Val::Px(12.)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.035, 0.045, 0.07, 0.92)),
+            BackgroundColor(Color::srgba(0.055, 0.055, 0.06, 0.95)),
+            BorderColor::all(Color::srgb(0.22, 0.22, 0.23)),
             ZIndex(1),
             MenuRoot,
         ))
         .with_children(|parent| {
             parent.spawn((
                 Text::new("Hanabi demos"),
-                TextFont::from_font_size(20.),
+                menu_font(19.),
                 TextColor(Color::WHITE),
                 Node {
-                    margin: UiRect::bottom(Val::Px(6.)),
+                    margin: UiRect::bottom(Val::Px(10.)),
                     ..default()
                 },
             ));
 
             parent
                 .spawn(Node {
-                    width: Val::Percent(100.),
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
+                    flex_grow: 1.,
+                    min_height: Val::Px(0.),
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Stretch,
                     justify_content: JustifyContent::Start,
-                    row_gap: Val::Px(4.),
+                    column_gap: Val::Px(6.),
                     ..default()
                 })
-                .with_children(|grid| {
-                    for (entity, demo) in &demos {
-                        grid.spawn((
-                            Button,
+                .with_children(|body| {
+                    let scroll_area = body
+                        .spawn((
                             Node {
                                 width: Val::Percent(100.),
-                                min_height: Val::Px(24.),
-                                padding: UiRect::all(Val::Px(4.)),
-                                align_items: AlignItems::Center,
-                                justify_content: JustifyContent::Center,
+                                flex_grow: 1.,
+                                min_width: Val::Px(0.),
+                                min_height: Val::Px(0.),
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::Stretch,
+                                row_gap: Val::Px(5.),
+                                overflow: Overflow::scroll_y(),
                                 ..default()
                             },
-                            BackgroundColor(Color::srgb(0.12, 0.16, 0.24)),
-                            Hovered::default(),
-                            MenuButton(entity),
+                            ScrollArea,
+                            ScrollPosition::default(),
                         ))
-                        .with_children(|button| {
-                            button.spawn((
-                                Text::new(demo.0),
-                                TextFont::from_font_size(13.),
-                                TextColor(Color::WHITE),
-                            ));
-                        });
-                    }
+                        .with_children(|grid| {
+                            for (entity, demo, summary, tags) in &demos {
+                                grid.spawn((
+                                    Button,
+                                    Node {
+                                        width: Val::Percent(100.),
+                                        min_height: Val::Px(58.),
+                                        padding: UiRect::all(Val::Px(8.)),
+                                        border: UiRect::all(Val::Px(1.)),
+                                        border_radius: BorderRadius::all(Val::Px(5.)),
+                                        flex_direction: FlexDirection::Column,
+                                        align_items: AlignItems::Stretch,
+                                        justify_content: JustifyContent::Start,
+                                        row_gap: Val::Px(3.),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgb(0.12, 0.12, 0.13)),
+                                    BorderColor::all(Color::srgb(0.2, 0.2, 0.21)),
+                                    Hovered::default(),
+                                    MenuButton(*entity),
+                                ))
+                                .with_children(|button| {
+                                    button
+                                        .spawn(Node {
+                                            width: Val::Percent(100.),
+                                            height: Val::Px(22.),
+                                            flex_direction: FlexDirection::Row,
+                                            align_items: AlignItems::Center,
+                                            column_gap: Val::Px(5.),
+                                            ..default()
+                                        })
+                                        .with_children(|title| {
+                                            title.spawn((
+                                                Text::new(demo.0),
+                                                menu_font(12.),
+                                                TextColor(Color::WHITE),
+                                            ));
+                                            for tag in tags.0 {
+                                                title
+                                                    .spawn((
+                                                        Node {
+                                                            padding: UiRect {
+                                                                left: Val::Px(4.),
+                                                                right: Val::Px(4.),
+                                                                top: Val::Px(2.),
+                                                                bottom: Val::Px(2.),
+                                                            },
+                                                            border_radius: BorderRadius::all(
+                                                                Val::Percent(50.),
+                                                            ),
+                                                            ..default()
+                                                        },
+                                                        BackgroundColor(menu_tag_color(tag)),
+                                                    ))
+                                                    .with_children(|chip| {
+                                                        chip.spawn((
+                                                            Text::new(*tag),
+                                                            menu_font(10.),
+                                                            TextColor(Color::srgb(
+                                                                0.92, 0.92, 0.92,
+                                                            )),
+                                                        ));
+                                                    });
+                                            }
+                                        });
+                                    button.spawn((
+                                        Node {
+                                            min_height: Val::Px(16.),
+                                            ..default()
+                                        },
+                                        Text::new(summary.0),
+                                        menu_font(10.),
+                                        TextColor(Color::srgb(0.7, 0.7, 0.71)),
+                                    ));
+                                });
+                            }
+                        })
+                        .id();
+
+                    body.spawn((
+                        Node {
+                            width: Val::Px(6.),
+                            height: Val::Percent(100.),
+                            border_radius: BorderRadius::all(Val::Percent(50.)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.13, 0.13, 0.14)),
+                        Scrollbar::new(scroll_area, ControlOrientation::Vertical, 24.),
+                    ))
+                    .with_children(|track| {
+                        track.spawn((
+                            ScrollbarThumb {
+                                border_radius: BorderRadius::all(Val::Percent(50.)),
+                                border: UiRect::all(Val::Px(0.)),
+                            },
+                            BackgroundColor(Color::srgb(0.55, 0.55, 0.57)),
+                        ));
+                    });
                 });
         });
+}
+
+fn menu_font(size: f32) -> TextFont {
+    TextFont::from_font_size(size)
+}
+
+fn menu_tag_color(tag: &str) -> Color {
+    match tag {
+        "expr" => Color::srgb(0.64, 0.42, 0.42),
+        "hdr" | "camera" | "visibility" | "blending" | "flipbook" | "texture" | "alphamask" => {
+            Color::srgb(0.51, 0.42, 0.31)
+        }
+        "trail" => Color::srgb(0.35, 0.42, 0.43),
+        "modifier" => Color::srgb(0.35, 0.43, 0.38),
+        _ => Color::srgb(0.38, 0.38, 0.38),
+    }
 }
 
 fn spawn_menu_camera(mut commands: Commands) {
@@ -440,14 +572,24 @@ fn clear_demo_content(
 }
 
 fn highlight_menu_buttons(
-    mut buttons: Query<(&Hovered, &mut BackgroundColor), (Changed<Hovered>, With<MenuButton>)>,
+    selection: Res<DemoSelection>,
+    mut buttons: Query<(
+        &MenuButton,
+        &Hovered,
+        &mut BackgroundColor,
+        &mut BorderColor,
+    )>,
 ) {
-    for (hovered, mut background) in &mut buttons {
-        background.0 = if hovered.get() {
-            Color::srgb(0.22, 0.36, 0.56)
+    for (button, hovered, mut background, mut border) in &mut buttons {
+        let (background_color, border_color) = if button.0 == selection.0 {
+            (Color::srgb(0.19, 0.19, 0.2), Color::srgb(0.44, 0.44, 0.46))
+        } else if hovered.get() {
+            (Color::srgb(0.15, 0.15, 0.16), Color::srgb(0.3, 0.3, 0.31))
         } else {
-            Color::srgb(0.12, 0.16, 0.24)
+            (Color::srgb(0.12, 0.12, 0.13), Color::srgb(0.2, 0.2, 0.21))
         };
+        background.0 = background_color;
+        border.set_all(border_color);
     }
 }
 
@@ -641,14 +783,21 @@ mod tests {
     fn demo_entities_have_metadata_and_named_effects() {
         let mut world = World::new();
         insert_demos(&mut world);
-        let mut query = world.query::<(&Demo, &DemoName, &DemoDescription)>();
-        for (demo, name, description) in query.iter(&world) {
+        let mut query =
+            world.query::<(&Demo, &DemoName, &DemoDescription, &DemoSummary, &DemoTags)>();
+        for (demo, name, description, summary, tags) in query.iter(&world) {
             assert!(!name.0.trim().is_empty(), "demo has no name");
             assert!(
                 !description.0.trim().is_empty(),
                 "demo '{}' has no description",
                 name.0
             );
+            assert!(
+                !summary.0.trim().is_empty(),
+                "demo '{}' has no menu summary",
+                name.0
+            );
+            assert!(!tags.0.is_empty(), "demo '{}' has no tags", name.0);
             let effects = (demo.effects)();
             assert!(!effects.is_empty(), "demo '{}' has no effects", name.0);
             for effect in effects {

@@ -47,6 +47,10 @@ pub enum DescPosition {
     #[default]
     LeftColumn,
     BottomRow,
+    RightColumn {
+        left: Val,
+        top: Val,
+    },
 }
 
 #[derive(Default)]
@@ -183,6 +187,7 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
     let (left, top, right, bottom, width) = match demo.desc_position {
         DescPosition::LeftColumn => (Val::Vw(5.), Val::Vw(5.), Val::Auto, Val::Auto, Val::Vw(30.)),
         DescPosition::BottomRow => (Val::Vw(5.), Val::Auto, Val::Vw(5.), Val::Vw(5.), Val::Auto),
+        DescPosition::RightColumn { left, top } => (left, top, Val::Auto, Val::Auto, Val::Vw(30.)),
     };
     commands.spawn((
         Node {

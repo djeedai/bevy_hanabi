@@ -13,6 +13,8 @@ use bevy_hanabi::prelude::*;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("multicam.txt");
+const DEMO_SUMMARY: &str = "Render effects through multiple cameras.";
+const DEMO_TAGS: &[&str] = &["camera"];
 
 declare_demo!("multicam");
 

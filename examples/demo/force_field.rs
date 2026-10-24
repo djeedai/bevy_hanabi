@@ -24,6 +24,8 @@ use super::DemoCommands as Commands;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("force_field.txt");
+const DEMO_SUMMARY: &str = "Constrain particles with force fields.";
+const DEMO_TAGS: &[&str] = &["properties", "modifier"];
 
 declare_demo!("force_field");
 

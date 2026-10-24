@@ -40,6 +40,8 @@ use bevy_hanabi::prelude::*;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("billboard.txt");
+const DEMO_SUMMARY: &str = "Billboarding and alpha masking.";
+const DEMO_TAGS: &[&str] = &["alphamask"];
 
 declare_demo!("billboard");
 

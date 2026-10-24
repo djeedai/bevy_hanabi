@@ -5,6 +5,8 @@ use bevy_hanabi::prelude::*;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("spawn.txt");
+const DEMO_SUMMARY: &str = "Different CPU spawning patterns.";
+const DEMO_TAGS: &[&str] = &["spawner", "properties"];
 
 declare_demo!("spawn");
 

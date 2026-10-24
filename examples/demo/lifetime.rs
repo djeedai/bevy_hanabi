@@ -21,6 +21,8 @@ use bevy_hanabi::prelude::*;
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("lifetime.txt");
+const DEMO_SUMMARY: &str = "Compare particle lifetime behavior.";
+const DEMO_TAGS: &[&str] = &["attributes"];
 
 declare_demo!("lifetime");
 

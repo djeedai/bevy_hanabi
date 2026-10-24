@@ -21,6 +21,8 @@ use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("lightning.txt");
+const DEMO_SUMMARY: &str = "A cinematic lightning strike with impact bursts.";
+const DEMO_TAGS: &[&str] = &["expr", "hdr", "trail"];
 const PARTICLES_PER_BOLT: u32 = 40;
 const BOLT_LIFETIME: f32 = 0.3;
 const BOLT_LENGTH: f32 = 30.0;
