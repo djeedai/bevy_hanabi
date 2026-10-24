@@ -1515,7 +1515,7 @@ fn process_effect_artifacts(write: bool) -> Result<(), Box<dyn Error>> {
                 .map_err(|error| format!("cannot read {}: {error}", relative_path.display()))?;
             if expected != content {
                 return Err(format!(
-                    "{} differs from regenerated output; run --write-effects",
+                    "{} differs from generated .effect; check the difference, and if expected run --write-effects to regenerate it.",
                     relative_path.display()
                 )
                 .into());
@@ -1541,7 +1541,7 @@ fn process_effect_artifacts(write: bool) -> Result<(), Box<dyn Error>> {
                         path.strip_prefix(env!("CARGO_MANIFEST_DIR"))?.to_path_buf();
                     if !expected_files.contains(&relative_path) {
                         return Err(format!(
-                            "unexpected effect artifact {}; remove it or add it to the demo",
+                            "unexpected effect artifact {}; remove it, or register it with the demo.",
                             relative_path.display()
                         )
                         .into());
