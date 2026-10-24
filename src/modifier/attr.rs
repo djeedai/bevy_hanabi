@@ -179,11 +179,9 @@ impl InheritAttributeModifier {
     ) -> Result<String, ExprError> {
         let attr = module.attr(self.attribute);
         let attr = context.eval(module, attr)?;
-        Ok(format!(
-            "{} = parent_particle.{};\n",
-            attr,
-            self.attribute.name()
-        ))
+        let parent_attr = module.parent_attr(self.attribute);
+        let parent_attr = context.eval(module, parent_attr)?;
+        Ok(format!("{} = {};\n", attr, parent_attr))
     }
 }
 
