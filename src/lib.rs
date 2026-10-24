@@ -2658,6 +2658,7 @@ else { return c1; }
                 &[
                     "LOCAL_SPACE_SIMULATION",
                     "NEEDS_UV",
+                    "NEEDS_PARTICLE_FRAGMENT",
                     "PARTICLE_SCREEN_SPACE_SIZE",
                 ],
                 &modules
