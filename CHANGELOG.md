@@ -56,9 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SetPositionCone3dModifier`, `SetVelocityCircleModifier`, and `SetVelocityTangentModifier`.
   Local-space effects with a rotated, scaled, or off-origin emitter may render differently
   than before; this is the corrected behavior.
-- Fixed the render shader failing validation when a render modifier calls
-  `RenderContext::set_needs_particle_fragment()`: the particle index passed from the
-  vertex to the fragment stage is now `@interpolate(flat)`, which WGSL requires for integers.
 
 ## [0.19.0] 2026-06-27
 
