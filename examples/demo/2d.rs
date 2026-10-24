@@ -1,12 +1,12 @@
 //! A particle system with a 2D camera.
 
+use super::DemoCommands as Commands;
 use bevy::{camera::ScalingMode, prelude::*};
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("2d.txt");
 const DEMO_SUMMARY: &str = "2D particles with depth-layered rendering.";
-const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::TwoD];
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::D2];
 
 #[derive(Component)]
 struct ReferenceSquare;
