@@ -12,7 +12,6 @@ use bevy::{
     utils::default,
 };
 use bevy::{ecs::reflect::AppTypeRegistry, reflect::serde::TypedReflectSerializer};
-use serde::de::DeserializeSeed as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
@@ -707,10 +706,12 @@ impl EffectAsset {
     /// For more advanced deserialization, for example to another format, see
     /// also the [`EffectAssetDeserializer`] which implements
     /// [`serde::de::DeserializeSeed`].
-    pub fn deserialize(s: &str, type_registry: &TypeRegistry) -> Result<Self, ron::Error> {
-        let mut deserializer = ron::de::Deserializer::from_str(s)?;
+    pub fn deserialize(
+        s: &str,
+        type_registry: &TypeRegistry,
+    ) -> Result<Self, ron::error::SpannedError> {
         let deserialize = EffectAssetDeserializer::new(type_registry);
-        let asset = deserialize.deserialize(&mut deserializer)?;
+        let asset = ron::Options::default().from_str_seed(s, deserialize)?;
         Ok(asset)
     }
 }
@@ -1088,20 +1089,16 @@ impl FromWorld for EffectAssetLoader {
 #[non_exhaustive]
 pub enum EffectAssetLoaderError {
     /// I/O error reading the asset source.
-    #[error("An IO error occurred during loading of a particle effect")]
+    #[error("An IO error occurred during loading of a particle effect: {0}")]
     Io(#[from] std::io::Error),
 
     /// UTF-8 error converting the asset serialized content.
-    #[error("An encoding error occurred during loading of a particle effect")]
+    #[error("An encoding error occurred during loading of a particle effect: {0}")]
     Encoding(#[from] std::string::FromUtf8Error),
 
     /// Error during RON format parsing.
-    #[error("A RON format error occurred during loading of a particle effect")]
+    #[error("A RON format error occurred during loading of a particle effect: {0}")]
     RonSpan(#[from] ron::error::SpannedError),
-
-    /// Error during RON format parsing.
-    #[error("A RON error occurred during loading of a particle effect")]
-    Ron(#[from] ron::error::Error),
 }
 
 impl AssetLoader for EffectAssetLoader {
