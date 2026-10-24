@@ -37,6 +37,15 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::AppExitIntoResult;
 
+/// Default number of frames to render in --bootstrap mode, after all effects
+/// reported ready. Override with --bootstrap=N.
+const BOOTSTRAP_FRAMES: usize = 60;
+
+/// Timeout, in frames, to wait in --bootstrap mode for effects to become ready.
+/// This depends on the GPU (PSO compilation, notably) so we keep this fairly
+/// large.
+const BOOTSTRAP_READY_TIMEOUT_FRAMES: usize = 600;
+
 const MENU_WIDTH: f32 = 320.;
 const MENU_GAP: f32 = 16.;
 const MENU_FOCUS_COLOR: Color = Color::oklab(0.67, 0.08, -0.12);
@@ -57,7 +66,8 @@ pub(crate) struct Demo {
     install: fn(&mut App, Entity),
     /// Callback to create all the [`EffectAsset`] that the demo will use. Those
     /// assets are automatically registered by the demo app into
-    /// [`Assets<EffectAsset>`]. They are also used for automated testing of serialization.
+    /// [`Assets<EffectAsset>`]. They are also used for automated testing of
+    /// serialization.
     effects: fn() -> Vec<EffectAsset>,
 }
 
@@ -394,11 +404,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         CliMode::WriteEffects => process_effect_artifacts(true),
         #[cfg(not(target_arch = "wasm32"))]
         CliMode::CheckEffects => process_effect_artifacts(false),
-        CliMode::Run(selected_demo) => run_demo_app(selected_demo),
+        CliMode::Run {
+            selected_demo,
+            bootstrap_frames,
+        } => run_demo_app(selected_demo, bootstrap_frames),
     }
 }
 
-fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
+fn run_demo_app(
+    selected_demo: Option<String>,
+    bootstrap_frames: Option<usize>,
+) -> Result<(), Box<dyn Error>> {
     let selected = selected_demo
         .map(|id| {
             let mut world = World::new();
@@ -421,15 +437,32 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
         .build();
     insert_demos(app.world_mut());
     app.world_mut().resource_mut::<utils::Demo>().show_ui = false;
-    let selected = selected.as_deref().unwrap_or("firework");
-    let selected = {
+    let (demo_entities, selected) = {
         let world = app.world_mut();
         let mut query = world.query::<(Entity, &DemoName)>();
-        query
+        let mut demos = query
             .iter(world)
-            .find(|(_, demo)| demo.0 == selected)
-            .map(|(entity, _)| entity)
-            .expect("selected demo was validated")
+            .map(|(entity, demo)| (entity, demo.0))
+            .collect::<Vec<_>>();
+        demos.sort_by_key(|(_, name)| *name);
+        let selected_name = if bootstrap_frames.is_some() {
+            demos.first().map(|(_, name)| *name)
+        } else {
+            Some(selected.as_deref().unwrap_or("firework"))
+        }
+        .expect("at least one demo is registered");
+        let selected = demos
+            .iter()
+            .find(|(_, name)| *name == selected_name)
+            .map(|(entity, _)| *entity)
+            .expect("selected demo was validated");
+        (
+            demos
+                .into_iter()
+                .map(|(entity, _)| entity)
+                .collect::<Vec<_>>(),
+            selected,
+        )
     };
     app.insert_resource(DemoSelection(selected))
         .insert_resource(ActiveMenuDemo(selected))
@@ -438,6 +471,17 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
         .init_state::<DemoState>();
 
     install_demo_state_systems(&mut app);
+    if let Some(frames_per_demo) = bootstrap_frames {
+        app.insert_resource(Bootstrap {
+            demos: demo_entities,
+            current: 0,
+            frames: 0,
+            frames_per_demo,
+            waited_frames: 0,
+            timed_out: false,
+        })
+        .add_systems(Update, bootstrap_demo);
+    }
     app.add_plugins(TabNavigationPlugin);
     app.add_systems(Startup, (spawn_menu, spawn_menu_camera))
         .add_systems(
@@ -463,7 +507,10 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
 }
 
 enum CliMode {
-    Run(Option<String>),
+    Run {
+        selected_demo: Option<String>,
+        bootstrap_frames: Option<usize>,
+    },
     #[cfg(not(target_arch = "wasm32"))]
     WriteEffects,
     #[cfg(not(target_arch = "wasm32"))]
@@ -473,19 +520,39 @@ enum CliMode {
 fn parse_cli() -> Result<CliMode, Box<dyn Error>> {
     #[cfg(target_arch = "wasm32")]
     {
-        Ok(CliMode::Run(None))
+        Ok(CliMode::Run {
+            selected_demo: None,
+            bootstrap_frames: None,
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
         let args = std::env::args().skip(1).collect::<Vec<_>>();
         match args.as_slice() {
-            [] => Ok(CliMode::Run(None)),
+            [] => Ok(CliMode::Run {
+                selected_demo: None,
+                bootstrap_frames: None,
+            }),
             [mode] if mode == "--write-effects" => Ok(CliMode::WriteEffects),
             [mode] if mode == "--check-effects" => Ok(CliMode::CheckEffects),
-            [mode, id] if mode == "--demo" => Ok(CliMode::Run(Some(id.to_string()))),
+            [flag] if *flag == "--bootstrap" || flag.starts_with("--bootstrap=") => {
+                let frame_count = if *flag == "--bootstrap" {
+                    None
+                } else {
+                    flag.strip_prefix("--bootstrap=")
+                };
+                Ok(CliMode::Run {
+                    selected_demo: None,
+                    bootstrap_frames: Some(parse_bootstrap_frames(frame_count)?),
+                })
+            }
+            [mode, id] if mode == "--demo" => Ok(CliMode::Run {
+                selected_demo: Some(id.to_string()),
+                bootstrap_frames: None,
+            }),
             [flag] if flag == "--help" || flag == "-h" => {
-                println!("Usage: cargo run --example demo [-- --demo <ID> | --write-effects | --check-effects]");
+                println!("Usage: cargo run --example demo [-- --demo <ID> | --bootstrap[=<FRAMES>] | --write-effects | --check-effects]");
                 println!("Available demos: {}", {
                     let mut world = World::new();
                     insert_demos(&mut world);
@@ -499,6 +566,129 @@ fn parse_cli() -> Result<CliMode, Box<dyn Error>> {
                 std::process::exit(0);
             }
             [arg, ..] => Err(format!("invalid arguments starting with {arg}").into()),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_bootstrap_frames(value: Option<&str>) -> Result<usize, Box<dyn Error>> {
+    let Some(value) = value else {
+        return Ok(BOOTSTRAP_FRAMES);
+    };
+    let frames = value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid bootstrap frame count: {value}"))?;
+    if frames == 0 {
+        return Err("bootstrap frame count must be greater than zero".into());
+    }
+    Ok(frames)
+}
+
+#[derive(Resource)]
+struct Bootstrap {
+    demos: Vec<Entity>,
+    current: usize,
+    frames: usize,
+    frames_per_demo: usize,
+    waited_frames: usize,
+    timed_out: bool,
+}
+
+enum BootstrapReadiness {
+    Waiting,
+    Ready,
+    TimedOut,
+}
+
+enum BootstrapProgress {
+    Waiting,
+    Next(Entity),
+    Finished,
+}
+
+impl Bootstrap {
+    fn wait_for_effects(&mut self, effects_ready: bool) -> BootstrapReadiness {
+        if effects_ready {
+            return BootstrapReadiness::Ready;
+        }
+        if self.timed_out {
+            return BootstrapReadiness::TimedOut;
+        }
+
+        self.waited_frames += 1;
+        if self.waited_frames >= BOOTSTRAP_READY_TIMEOUT_FRAMES {
+            self.timed_out = true;
+            BootstrapReadiness::TimedOut
+        } else {
+            BootstrapReadiness::Waiting
+        }
+    }
+
+    fn advance(&mut self) -> BootstrapProgress {
+        self.frames += 1;
+        if self.frames < self.frames_per_demo {
+            return BootstrapProgress::Waiting;
+        }
+        self.frames = 0;
+
+        if let Some(next) = self.demos.get(self.current + 1).copied() {
+            self.current += 1;
+            self.waited_frames = 0;
+            self.timed_out = false;
+            BootstrapProgress::Next(next)
+        } else {
+            BootstrapProgress::Finished
+        }
+    }
+}
+
+fn bootstrap_demo(
+    mut bootstrap: ResMut<Bootstrap>,
+    state: Res<State<DemoState>>,
+    effects: Query<Option<&CompiledParticleEffect>, With<ParticleEffect>>,
+    demo_names: Query<&DemoName>,
+    mut next_demo: ResMut<NextDemoSelection>,
+    mut next_state: ResMut<NextState<DemoState>>,
+    mut app_exit: MessageWriter<AppExit>,
+) {
+    if *state.get() != DemoState::Running {
+        return;
+    }
+
+    let mut effect_count = 0;
+    let mut effects_ready = true;
+    for compiled in effects.iter() {
+        effect_count += 1;
+        effects_ready &= compiled.is_some_and(CompiledParticleEffect::is_ready);
+    }
+    effects_ready &= effect_count > 0;
+    let was_timed_out = bootstrap.timed_out;
+    match bootstrap.wait_for_effects(effects_ready) {
+        BootstrapReadiness::Waiting => {
+            bootstrap.frames = 0;
+            return;
+        }
+        BootstrapReadiness::TimedOut if !was_timed_out => {
+            let demo = bootstrap.demos[bootstrap.current];
+            let name = demo_names
+                .get(demo)
+                .map_or("<unknown>", |demo_name| demo_name.0);
+            warn!(
+                "Timed out waiting for particle effect pipelines for demo '{name}' after \
+                 {BOOTSTRAP_READY_TIMEOUT_FRAMES} frames; continuing bootstrap."
+            );
+        }
+        BootstrapReadiness::Ready | BootstrapReadiness::TimedOut => {}
+    }
+
+    match bootstrap.advance() {
+        BootstrapProgress::Waiting => {}
+        BootstrapProgress::Next(next) => {
+            next_demo.0 = Some(next);
+            next_state.set(DemoState::Unloading);
+        }
+        BootstrapProgress::Finished => {
+            app_exit.write(AppExit::Success);
         }
     }
 }
@@ -1374,6 +1564,74 @@ fn effect_stem(name: &str) -> Result<String, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootstrap() {
+        let mut world = World::new();
+        let first = world.spawn_empty().id();
+        let second = world.spawn_empty().id();
+        let mut bootstrap = Bootstrap {
+            demos: vec![first, second],
+            current: 0,
+            frames: 0,
+            frames_per_demo: BOOTSTRAP_FRAMES,
+            waited_frames: 0,
+            timed_out: false,
+        };
+
+        assert!(matches!(
+            bootstrap.wait_for_effects(false),
+            BootstrapReadiness::Waiting
+        ));
+        assert!(matches!(
+            bootstrap.wait_for_effects(true),
+            BootstrapReadiness::Ready
+        ));
+        assert!(matches!(bootstrap.advance(), BootstrapProgress::Waiting));
+        assert!(matches!(bootstrap.advance(), BootstrapProgress::Waiting));
+        assert!(matches!(
+            bootstrap.advance(),
+            BootstrapProgress::Next(entity) if entity == second
+        ));
+        assert!(matches!(bootstrap.advance(), BootstrapProgress::Waiting));
+        assert!(matches!(bootstrap.advance(), BootstrapProgress::Waiting));
+        assert!(matches!(bootstrap.advance(), BootstrapProgress::Finished));
+    }
+
+    #[test]
+    fn bootstrap_times_out_waiting_for_effect_readiness() {
+        let mut bootstrap = Bootstrap {
+            demos: vec![],
+            current: 0,
+            frames: 0,
+            frames_per_demo: BOOTSTRAP_FRAMES,
+            waited_frames: 0,
+            timed_out: false,
+        };
+
+        for _ in 1..BOOTSTRAP_READY_TIMEOUT_FRAMES {
+            assert!(matches!(
+                bootstrap.wait_for_effects(false),
+                BootstrapReadiness::Waiting
+            ));
+        }
+        assert!(matches!(
+            bootstrap.wait_for_effects(false),
+            BootstrapReadiness::TimedOut
+        ));
+        assert!(matches!(
+            bootstrap.wait_for_effects(false),
+            BootstrapReadiness::TimedOut
+        ));
+    }
+
+    #[test]
+    fn bootstrap_frame_count_defaults_and_accepts_override() {
+        assert_eq!(parse_bootstrap_frames(None).unwrap(), BOOTSTRAP_FRAMES);
+        assert_eq!(parse_bootstrap_frames(Some("20")).unwrap(), 20);
+        assert!(parse_bootstrap_frames(Some("0")).is_err());
+        assert!(parse_bootstrap_frames(Some("invalid")).is_err());
+    }
 
     fn spawn_demo_content(mut commands: DemoCommands) {
         commands
