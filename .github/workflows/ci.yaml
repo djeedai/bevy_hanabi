@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev libwayland-dev;
+            libasound2-dev libudev-dev libwayland-dev libfontconfig1-dev;
         if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -93,6 +93,11 @@ jobs:
     timeout-minutes: 30
     needs: build
     steps:
+      - name: Install fontconfig
+        run: |
+          sudo apt-get update;
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
+            libfontconfig1-dev;
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
@@ -124,7 +129,7 @@ jobs:
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev libwayland-dev;
+            libasound2-dev libudev-dev libwayland-dev libfontconfig1-dev;
         if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -194,7 +199,7 @@ jobs:
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev libwayland-dev;
+            libasound2-dev libudev-dev libwayland-dev libfontconfig1-dev;
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:

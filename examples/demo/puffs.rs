@@ -2,7 +2,7 @@
 //!
 //! This example creates cartoony smoke puffs out of spherical meshes.
 
-use std::{borrow::Cow, error::Error, f32::consts::FRAC_PI_2};
+use std::{borrow::Cow, f32::consts::FRAC_PI_2};
 
 use super::DemoCommands as Commands;
 use bevy::{
