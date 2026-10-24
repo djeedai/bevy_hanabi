@@ -92,7 +92,11 @@ naga = { version = "30", features = ["wgsl-in"] }
 wesl = { version = "0.6", features = ["naga-ext"] }
 # Enable all features by default in examples to make it easier to run them and to use
 # extra features like text rendering or gizmos, which are example-specific.
-bevy = { version = "0.20", default-features = true }
+bevy = {
+    version = "0.20",
+    default-features = true,
+    features = ["system_font_discovery"],
+}
 
 # For procedural texture generation in examples
 noise = "0.9"

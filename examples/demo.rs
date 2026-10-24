@@ -9,7 +9,7 @@ use std::{
 
 use bevy::color::Luminance;
 use bevy::input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin};
-use bevy::text::{EditableText, FontSource, TextCursorStyle, TextEditChange};
+use bevy::text::{EditableText, FontSource, FontWeight, TextCursorStyle, TextEditChange};
 use bevy::ui_widgets::{
     Activate, Button, ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb, TextInput,
 };
@@ -22,7 +22,8 @@ use utils::AppExitIntoResult;
 
 const MENU_WIDTH: f32 = 320.;
 const MENU_GAP: f32 = 16.;
-const DISABLED_TAG_COLOR: Color = Color::oklch(0.48, 0.01, 258.);
+const DISABLED_TAG_COLOR: Color = Color::oklch(0.38, 0.01, 258.);
+const DISABLED_TAG_TEXT_COLOR: Color = Color::srgb(0.62, 0.62, 0.64);
 
 #[derive(Component, Clone)]
 pub(crate) struct DemoInfo {
@@ -122,7 +123,7 @@ impl DemoTag {
     }
 
     fn color(self) -> Color {
-        const LIGHTNESS: f32 = 0.62;
+        const LIGHTNESS: f32 = 0.48;
         const CHROMA: f32 = 0.14;
 
         let hue = match self {
@@ -539,27 +540,39 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                         TextColor(Color::srgb(0.7, 0.7, 0.71)),
                     ));
 
-                    header.spawn((
-                        Node {
-                            width: Val::Percent(100.),
-                            min_height: Val::Px(30.),
-                            padding: UiRect::horizontal(Val::Px(7.)),
-                            border: UiRect::all(Val::Px(1.)),
-                            border_radius: BorderRadius::all(Val::Px(4.)),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        TextInput,
-                        EditableText::new(""),
-                        TextCursorStyle::default(),
-                        TextLayout::no_wrap(),
-                        TabIndex(0),
-                        menu_font(12.),
-                        TextColor(Color::WHITE),
-                        BackgroundColor(Color::srgb(0.19, 0.21, 0.23)),
-                        BorderColor::all(Color::srgb(0.25, 0.26, 0.27)),
-                        MenuSearchInput,
-                    ));
+                    header
+                        .spawn((
+                            Node {
+                                width: Val::Percent(100.),
+                                min_height: Val::Px(30.),
+                                padding: UiRect::horizontal(Val::Px(7.)),
+                                border: UiRect::all(Val::Px(1.)),
+                                border_radius: BorderRadius::all(Val::Px(4.)),
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.19, 0.21, 0.23)),
+                            BorderColor::all(Color::srgb(0.25, 0.26, 0.27)),
+                        ))
+                        .with_children(|search| {
+                            search.spawn((
+                                Node {
+                                    width: Val::Percent(100.),
+                                    ..default()
+                                },
+                                TextInput,
+                                EditableText::new(""),
+                                TextCursorStyle {
+                                    color: Color::srgb(0.9, 0.9, 0.9),
+                                    ..default()
+                                },
+                                TextLayout::no_wrap(),
+                                TabIndex(0),
+                                menu_font(12.),
+                                TextColor(Color::WHITE),
+                                MenuSearchInput,
+                            ));
+                        });
 
                     header
                         .spawn(Node {
@@ -594,8 +607,8 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                 .with_children(|pill| {
                                     pill.spawn((
                                         Text::new(tag.label()),
-                                        menu_font(11.),
-                                        TextColor(Color::BLACK),
+                                        menu_tag_font(11.),
+                                        TextColor(Color::WHITE),
                                         MenuTagLabel(*tag),
                                     ));
                                 });
@@ -709,8 +722,8 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                                     .with_children(|chip| {
                                                         chip.spawn((
                                                             Text::new(tag.label()),
-                                                            menu_font(11.),
-                                                            TextColor(Color::BLACK),
+                                                            menu_tag_font(11.),
+                                                            TextColor(Color::WHITE),
                                                         ));
                                                     });
                                             }
@@ -756,6 +769,13 @@ fn menu_font(size: f32) -> TextFont {
     TextFont {
         font: FontSource::list([FontSource::system_ui(), FontSource::default()]),
         ..TextFont::from_font_size(size)
+    }
+}
+
+fn menu_tag_font(size: f32) -> TextFont {
+    TextFont {
+        weight: FontWeight::SEMIBOLD,
+        ..menu_font(size)
     }
 }
 
@@ -825,16 +845,25 @@ fn update_menu_filter(
 
     for (tag, mut background, mut border) in &mut tag_buttons {
         let active = !search.disabled_tags.contains(&tag.0);
-        background.0 = if active {
+        let tag_color = if active {
             tag.0.color()
         } else {
             DISABLED_TAG_COLOR
         };
+        background.0 = tag_color;
         border.set_all(if active {
             tag.0.color().darker(0.24)
         } else {
             DISABLED_TAG_COLOR.darker(0.2)
         });
+    }
+
+    for (tag, mut text_color) in &mut tag_labels {
+        text_color.0 = if search.disabled_tags.contains(&tag.0) {
+            DISABLED_TAG_TEXT_COLOR
+        } else {
+            Color::WHITE
+        };
     }
 }
 
@@ -1168,6 +1197,8 @@ mod tests {
                 BackgroundColor(tag.color()),
                 BorderColor::all(tag.color().darker(0.24)),
             ));
+            app.world_mut()
+                .spawn((MenuTagLabel(*tag), TextColor(Color::WHITE)));
         }
 
         let visible_names = |app: &mut App| {
@@ -1213,6 +1244,27 @@ mod tests {
             HashSet::from(["Firework", "Puffs"])
         );
         assert!(!highlighted_tags(&mut app).contains(&DemoTag::Expr));
+        let disabled_background = {
+            let mut tags = app
+                .world_mut()
+                .query::<(&MenuTagButton, &BackgroundColor)>();
+            tags.iter(app.world())
+                .find(|(tag, _)| tag.0 == DemoTag::Expr)
+                .map(|(_, background)| background.0)
+        };
+        assert_eq!(disabled_background, Some(DISABLED_TAG_COLOR));
+        let label_colors = {
+            let mut labels = app.world_mut().query::<(&MenuTagLabel, &TextColor)>();
+            labels
+                .iter(app.world())
+                .map(|(tag, color)| (tag.0, color.0))
+                .collect::<HashMap<_, _>>()
+        };
+        assert_eq!(
+            label_colors.get(&DemoTag::Expr),
+            Some(&DISABLED_TAG_TEXT_COLOR)
+        );
+        assert_eq!(label_colors.get(&DemoTag::Hdr), Some(&Color::WHITE));
 
         app.world_mut()
             .resource_mut::<MenuSearch>()
@@ -1229,13 +1281,35 @@ mod tests {
             let Color::Oklcha(color) = tag.color() else {
                 panic!("demo tag colors should use Oklch");
             };
-            assert_eq!(color.lightness, 0.62);
+            assert_eq!(color.lightness, 0.48);
             assert_eq!(color.chroma, 0.14);
             hues.push(color.hue);
         }
         hues.sort_by(f32::total_cmp);
         hues.dedup();
         assert_eq!(hues.len(), DemoTag::ALL.len());
+    }
+
+    #[test]
+    fn demo_tag_text_colors_have_sufficient_contrast() {
+        for background in DemoTag::ALL
+            .iter()
+            .map(|tag| tag.color())
+            .chain([DISABLED_TAG_COLOR])
+        {
+            let background_luminance = background.to_linear().luminance();
+            let text_luminance = Color::WHITE.to_linear().luminance();
+            let (lighter, darker) = if background_luminance > text_luminance {
+                (background_luminance, text_luminance)
+            } else {
+                (text_luminance, background_luminance)
+            };
+            let contrast_ratio = (lighter + 0.05) / (darker + 0.05);
+            assert!(
+                contrast_ratio >= 4.5,
+                "text contrast ratio {contrast_ratio} is too low"
+            );
+        }
     }
 
     #[test]
