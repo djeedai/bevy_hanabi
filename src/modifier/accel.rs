@@ -5,7 +5,7 @@
 /// ```txt
 /// particle.velocity += acceleration * simulation.delta_time;
 /// ```
-use std::hash::Hash;
+use std::{borrow::Cow, hash::Hash};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -68,8 +68,8 @@ impl Modifier for AccelModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -151,8 +151,8 @@ impl Modifier for RadialAccelModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION, Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -271,8 +271,8 @@ impl Modifier for TangentAccelModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION, Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {

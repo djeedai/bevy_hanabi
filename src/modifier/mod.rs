@@ -42,6 +42,7 @@
 //! cannot be read back into an application running on Wasm.
 
 use std::{
+    borrow::Cow,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
@@ -171,7 +172,7 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
     }
 
     /// Get the list of attributes required for this modifier to be used.
-    fn attributes(&self) -> &[Attribute];
+    fn attributes(&self) -> Cow<'_, [Attribute]>;
 
     /// Clone self.
     fn boxed_clone(&self) -> BoxedModifier;
@@ -613,8 +614,8 @@ macro_rules! impl_mod_render {
                 Some(self)
             }
 
-            fn attributes(&self) -> &[$crate::Attribute] {
-                $attrs
+            fn attributes(&self) -> std::borrow::Cow<'_, [$crate::Attribute]> {
+                std::borrow::Cow::Borrowed($attrs)
             }
 
             fn boxed_clone(&self) -> $crate::BoxedModifier {
@@ -718,8 +719,8 @@ impl Modifier for EmitSpawnEventModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -1145,7 +1146,7 @@ mod tests {
             let extra_code = context.extra_code;
 
             let mut particle_layout = ParticleLayout::new();
-            for &attr in modifier.attributes() {
+            for &attr in modifier.attributes().as_ref() {
                 particle_layout = particle_layout.append(attr);
             }
             let particle_layout = particle_layout.build();
@@ -1251,7 +1252,7 @@ fn main() {{
             let update_extra = context.extra_code;
 
             let mut particle_layout = ParticleLayout::new();
-            for &attr in modifier.attributes() {
+            for &attr in modifier.attributes().as_ref() {
                 particle_layout = particle_layout.append(attr);
             }
             let particle_layout = particle_layout.build();
@@ -1350,7 +1351,7 @@ fn main() {{
             let render_extra = context.render_extra;
 
             let mut particle_layout = ParticleLayout::new();
-            for &attr in modifier.attributes() {
+            for &attr in modifier.attributes().as_ref() {
                 particle_layout = particle_layout.append(attr);
             }
             let particle_layout = particle_layout.build();

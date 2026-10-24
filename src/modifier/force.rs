@@ -3,7 +3,7 @@
 //! The forces are applied as accelerations times unit mass, as particles
 //! currently do not have a mass.
 
-use std::hash::Hash;
+use std::{borrow::Cow, hash::Hash};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -164,8 +164,8 @@ impl Modifier for ConformToSphereModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION, Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -274,8 +274,8 @@ impl Modifier for LinearDragModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
