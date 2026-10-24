@@ -1433,6 +1433,7 @@ fn scroll_active_demo_into_view(
 
 /// Ensure the demo list scrolls to the active demo on start. This is especially
 /// important when using `--demo <id>`, which could select a demo down the list.
+#[allow(clippy::type_complexity)]
 fn scroll_initial_active_demo_into_view(
     mut scrolled: Local<bool>,
     active_demo: Res<ActiveMenuDemo>,
