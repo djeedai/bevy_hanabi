@@ -1,22 +1,35 @@
-use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    ops::{Deref, DerefMut},
+};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use bevy::color::Luminance;
-use bevy::input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin};
-use bevy::input_focus::InputFocus;
-use bevy::text::{EditableText, FontSource, FontWeight, TextCursorStyle, TextEditChange};
-use bevy::ui::FocusPolicy;
-use bevy::ui_widgets::{
-    Activate, Button, ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb, TextInput,
+use bevy::{
+    camera::visibility::RenderLayers,
+    color::Luminance,
+    ecs::system::SystemParam,
+    input::{
+        keyboard::{KeyCode, KeyboardInput},
+        ButtonState,
+    },
+    input_focus::{
+        tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
+        FocusGained, FocusedInput, InputFocus, InputFocusVisible,
+    },
+    picking::hover::Hovered,
+    prelude::*,
+    text::{EditableText, FontSource, FontWeight, TextCursorStyle, TextEditChange},
+    ui::{ComputedNode, FocusPolicy, UiGlobalTransform, UiSystems},
+    ui_widgets::{
+        Activate, Button, ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar,
+        ScrollbarThumb, TextInput,
+    },
 };
-use bevy::{camera::visibility::RenderLayers, prelude::*};
-use bevy::{ecs::system::SystemParam, picking::hover::Hovered};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -24,6 +37,7 @@ use utils::AppExitIntoResult;
 
 const MENU_WIDTH: f32 = 320.;
 const MENU_GAP: f32 = 16.;
+const MENU_FOCUS_COLOR: Color = Color::oklab(0.67, 0.08, -0.12);
 const DISABLED_TAG_COLOR: Color = Color::oklch(0.38, 0.01, 258.);
 const DISABLED_TAG_TEXT_COLOR: Color = Color::srgb(0.62, 0.62, 0.64);
 
@@ -33,9 +47,15 @@ pub(crate) struct DemoInfo {
     effects: Vec<Handle<EffectAsset>>,
 }
 
+/// Component representing a demo entry.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct Demo {
+    /// Callback to install the demo into the browser's app. This is executed
+    /// only once.
     install: fn(&mut App, Entity),
+    /// Callback to create all the [`EffectAsset`] that the demo will use. Those
+    /// assets are automatically registered by the demo app into
+    /// [`Assets<EffectAsset>`]. They are also used for automated testing of serialization.
     effects: fn() -> Vec<EffectAsset>,
 }
 
@@ -264,6 +284,9 @@ fn install_demos(app: &mut App) {
 struct MenuButton(Entity);
 
 #[derive(Component)]
+struct MenuDemoList;
+
+#[derive(Component)]
 struct MenuRoot;
 
 #[derive(Component)]
@@ -307,11 +330,18 @@ pub(crate) enum DemoState {
     Unloading,
 }
 
+/// Currently select demo, referenced by the entity holding the [`Demo`]
+/// component.
 #[derive(Resource)]
 pub(crate) struct DemoSelection(pub(crate) Entity);
 
+/// Next demo to select once unloading of current demo is done.
 #[derive(Resource, Default)]
-struct PendingDemoSelection(Option<Entity>);
+struct NextDemoSelection(Option<Entity>);
+
+/// Active menu entry in the list of demos.
+#[derive(Resource)]
+struct ActiveMenuDemo(Entity);
 
 pub(crate) fn demo_selected(entity: Entity) -> impl Fn(Res<DemoSelection>) -> bool + Clone {
     move |selection: Res<DemoSelection>| selection.0 == entity
@@ -397,7 +427,8 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
             .expect("selected demo was validated")
     };
     app.insert_resource(DemoSelection(selected))
-        .init_resource::<PendingDemoSelection>()
+        .insert_resource(ActiveMenuDemo(selected))
+        .init_resource::<NextDemoSelection>()
         .init_resource::<MenuSearch>()
         .init_state::<DemoState>();
 
@@ -413,9 +444,14 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
             ),
         )
         .add_systems(Update, sync_demo_info.before(utils::update_demo_ui))
+        .add_systems(
+            PostUpdate,
+            scroll_initial_active_demo_into_view.after(UiSystems::Layout),
+        )
         .add_observer(search_text_changed)
         .add_observer(toggle_menu_tag)
-        .add_observer(choose_demo);
+        .add_observer(choose_demo)
+        .add_observer(navigate_demo_list);
 
     install_demos(&mut app);
     app.run().into_result()
@@ -476,7 +512,7 @@ fn install_demo_state_systems(app: &mut App) {
 
 fn prepare_next_demo(
     mut selection: ResMut<DemoSelection>,
-    mut pending: ResMut<PendingDemoSelection>,
+    mut pending: ResMut<NextDemoSelection>,
     mut next_state: ResMut<NextState<DemoState>>,
 ) {
     if let Some(entity) = pending.0.take() {
@@ -591,6 +627,10 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                         EditableText::new(""),
                                         TextCursorStyle {
                                             color: Color::srgb(0.9, 0.9, 0.9),
+                                            selection_color: Color::oklch(0.48, 0.12, 300.),
+                                            unfocused_selection_color: Color::oklch(
+                                                0.35, 0.08, 300.,
+                                            ),
                                             ..default()
                                         },
                                         TextLayout::no_wrap(),
@@ -701,9 +741,12 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                 overflow: Overflow::scroll_y(),
                                 ..default()
                             },
+                            TabIndex(1),
+                            MenuDemoList,
                             ScrollArea,
                             ScrollPosition::default(),
                         ))
+                        .observe(scroll_active_demo_into_view)
                         .with_children(|grid| {
                             grid.spawn((
                                 Node {
@@ -867,7 +910,7 @@ fn update_menu_search_focus_indicator(
 
     for (parent, mut border_color) in &mut indicators {
         *border_color = BorderColor::all(if Some(parent.parent()) == focused_parent {
-            Color::oklab(0.67, 0.08, -0.12)
+            MENU_FOCUS_COLOR
         } else {
             Color::NONE
         });
@@ -890,7 +933,11 @@ fn toggle_menu_tag(
 
 fn update_menu_filter(
     search: Res<MenuSearch>,
-    mut demos: Query<(&MenuDemoEntry, &mut Node), Without<MenuEmptyState>>,
+    active_demo: Option<ResMut<ActiveMenuDemo>>,
+    mut demos: Query<
+        (Entity, &MenuDemoEntry, &mut Node, Option<&MenuButton>),
+        Without<MenuEmptyState>,
+    >,
     mut empty_state: Query<&mut Node, With<MenuEmptyState>>,
     mut tag_buttons: Query<(&MenuTagButton, &mut BackgroundColor, &mut BorderColor)>,
     mut tag_labels: Query<(&MenuTagLabel, &mut TextColor)>,
@@ -901,7 +948,9 @@ fn update_menu_filter(
 
     let name = search.name.to_lowercase();
     let mut visible_count = 0;
-    for (demo, mut node) in &mut demos {
+    let mut first_visible: Option<(Entity, &'static str)> = None;
+    let mut active_is_visible = false;
+    for (_, demo, mut node, menu_button) in &mut demos {
         let name_matches = name.is_empty() || demo.name.to_lowercase().contains(&name);
         let tag_matches = demo
             .tags
@@ -914,6 +963,21 @@ fn update_menu_filter(
             Display::None
         };
         visible_count += usize::from(visible);
+        if visible {
+            if let Some(menu_button) = menu_button {
+                active_is_visible |= active_demo
+                    .as_ref()
+                    .is_some_and(|active| active.0 == menu_button.0);
+                if first_visible.is_none_or(|(_, first_name)| demo.name < first_name) {
+                    first_visible = Some((menu_button.0, demo.name));
+                }
+            }
+        }
+    }
+    if !active_is_visible {
+        if let (Some((entity, _)), Some(mut active_demo)) = (first_visible, active_demo) {
+            active_demo.0 = entity;
+        }
     }
     if let Ok(mut node) = empty_state.single_mut() {
         node.display = if visible_count == 0 {
@@ -975,6 +1039,9 @@ fn clear_demo_content(
 
 fn highlight_menu_buttons(
     selection: Res<DemoSelection>,
+    active_demo: Res<ActiveMenuDemo>,
+    input_focus: Res<InputFocus>,
+    lists: Query<Entity, With<MenuDemoList>>,
     mut buttons: Query<(
         &MenuButton,
         &Hovered,
@@ -982,6 +1049,7 @@ fn highlight_menu_buttons(
         &mut BorderColor,
     )>,
 ) {
+    let list_focused = lists.iter().any(|entity| input_focus.get() == Some(entity));
     for (button, hovered, mut background, mut border) in &mut buttons {
         let (background_color, border_color) = if button.0 == selection.0 {
             (Color::srgb(0.19, 0.19, 0.2), Color::srgb(0.44, 0.44, 0.46))
@@ -991,22 +1059,131 @@ fn highlight_menu_buttons(
             (Color::srgb(0.12, 0.12, 0.13), Color::srgb(0.2, 0.2, 0.21))
         };
         background.0 = background_color;
-        border.set_all(border_color);
+        border.set_all(if list_focused && button.0 == active_demo.0 {
+            MENU_FOCUS_COLOR
+        } else {
+            border_color
+        });
     }
 }
 
+/// Change the current demo when a menu list button is pressed, from any input
+/// source. This transitions to [`DemoState::Unloading`] and saves the next demo
+/// to load in [`NextDemoSelection`].
 fn choose_demo(
     activate: On<Activate>,
     buttons: Query<&MenuButton>,
     selection: Res<DemoSelection>,
-    mut pending: ResMut<PendingDemoSelection>,
+    mut active_demo: ResMut<ActiveMenuDemo>,
+    mut next_demo: ResMut<NextDemoSelection>,
     mut next_state: ResMut<NextState<DemoState>>,
 ) {
     if let Ok(button) = buttons.get(activate.entity) {
+        active_demo.0 = button.0;
         if button.0 != selection.0 {
-            pending.0 = Some(button.0);
+            next_demo.0 = Some(button.0);
             next_state.set(DemoState::Unloading);
         }
+    }
+}
+
+/// Handle navigation of the demo list from keyboard.
+fn navigate_demo_list(
+    mut event: On<FocusedInput<KeyboardInput>>,
+    mut active_demo: ResMut<ActiveMenuDemo>,
+    mut focus_visible: ResMut<InputFocusVisible>,
+    mut commands: Commands,
+    lists: Query<&ComputedNode, With<MenuDemoList>>,
+    buttons: Query<(Entity, &MenuButton, &MenuDemoEntry, &Node, &ComputedNode), With<MenuButton>>,
+) {
+    if event.input.state != ButtonState::Pressed {
+        return;
+    }
+    let Ok(list_node) = lists.get(event.focused_entity) else {
+        return;
+    };
+
+    let mut visible_buttons = buttons
+        .iter()
+        .filter(|(_, _, _, node, _)| node.display != Display::None)
+        .map(|(entity, button, demo, _, computed)| (entity, button.0, demo.name, computed.size().y))
+        .collect::<Vec<_>>();
+    if visible_buttons.is_empty() {
+        return;
+    }
+    visible_buttons.sort_by_key(|(_, _, name, _)| *name);
+
+    let current_index = visible_buttons
+        .iter()
+        .position(|(_, demo, _, _)| *demo == active_demo.0)
+        .unwrap_or(0);
+    let last_index = visible_buttons.len() - 1;
+    let page_step = if visible_buttons[current_index].3 > 0. {
+        ((list_node.size().y / visible_buttons[current_index].3).floor() as usize)
+            .saturating_sub(1)
+            .max(1)
+    } else {
+        1
+    };
+
+    let next_index = match event.input.key_code {
+        KeyCode::ArrowUp => current_index.saturating_sub(1),
+        KeyCode::ArrowDown => current_index.saturating_add(1).min(last_index),
+        KeyCode::PageUp => current_index.saturating_sub(page_step),
+        KeyCode::PageDown => current_index.saturating_add(page_step).min(last_index),
+        KeyCode::Home => 0,
+        KeyCode::End => last_index,
+        KeyCode::Enter | KeyCode::Space => {
+            event.propagate(false);
+            if let Some((row, _, _, _)) = visible_buttons
+                .iter()
+                .find(|(_, demo, _, _)| *demo == active_demo.0)
+            {
+                commands.trigger(Activate { entity: *row });
+            }
+            return;
+        }
+        _ => return,
+    };
+
+    event.propagate(false);
+    let (row, demo, _, _) = visible_buttons[next_index];
+    active_demo.0 = demo;
+    commands.trigger(ScrollIntoView { entity: row });
+    focus_visible.0 = true;
+}
+
+/// Ensure the demo list scrolls to the active demo when it gains focus.
+fn scroll_active_demo_into_view(
+    event: On<FocusGained>,
+    active_demo: Res<ActiveMenuDemo>,
+    q_list: Query<(), With<MenuDemoList>>,
+    q_buttons: Query<(Entity, &MenuButton)>,
+    mut commands: Commands,
+) {
+    if !q_list.contains(event.entity) {
+        return;
+    }
+    if let Some((row, _)) = q_buttons
+        .iter()
+        .find(|(_, button)| button.0 == active_demo.0)
+    {
+        commands.trigger(ScrollIntoView { entity: row });
+    }
+}
+
+fn scroll_initial_active_demo_into_view(
+    mut scrolled: Local<bool>,
+    active_demo: Res<ActiveMenuDemo>,
+    buttons: Query<(Entity, &MenuButton), (With<ComputedNode>, With<UiGlobalTransform>)>,
+    mut commands: Commands,
+) {
+    if *scrolled {
+        return;
+    }
+    if let Some((row, _)) = buttons.iter().find(|(_, button)| button.0 == active_demo.0) {
+        commands.trigger(ScrollIntoView { entity: row });
+        *scrolled = true;
     }
 }
 
@@ -1143,7 +1320,7 @@ fn headless_app() -> App {
             .expect("firework demo is registered")
     };
     app.insert_resource(DemoSelection(selected))
-        .init_resource::<PendingDemoSelection>()
+        .init_resource::<NextDemoSelection>()
         .init_state::<DemoState>();
     install_demo_state_systems(&mut app);
     install_demos(&mut app);
@@ -1397,7 +1574,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_resource(DemoSelection(Entity::PLACEHOLDER))
-            .init_resource::<PendingDemoSelection>()
+            .init_resource::<NextDemoSelection>()
             .init_resource::<GlobalAmbientLight>()
             .init_state::<DemoState>()
             .add_systems(
