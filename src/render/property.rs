@@ -23,6 +23,7 @@ use bevy::{
     utils::default,
 };
 use bytemuck::{cast_slice, Pod};
+use thiserror::Error;
 use wgpu::{
     BindGroupEntry, BindingResource, BufferAddress, BufferBinding, BufferDescriptor, BufferUsages,
     ShaderStages,
@@ -32,7 +33,7 @@ use super::effect_cache::SlabState;
 use crate::{
     render::{
         ExtractedEffect, ExtractedProperties, GpuBatchInfo, GpuSpawnerParams, Material,
-        StorageType as _,
+        MaterialBindingError, StorageType as _,
     },
     PropertyLayout, TextureLayout,
 };
@@ -846,6 +847,18 @@ pub struct PropertyBindGroups {
     property_bind_groups: HashMap<PropertyBindGroupKey, [BindGroup; 2]>,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum PropertyBindGroupError {
+    #[error("Missing property layout for binding size {0:?}.")]
+    MissingLayout(Option<NonZeroU64>),
+
+    #[error("Missing GPU property buffer #{0}.")]
+    MissingPropertyBuffer(u32),
+
+    #[error("Material binding error: {0:?}.")]
+    Material(MaterialBindingError),
+}
+
 impl PropertyBindGroups {
     /// Clear all cached bind groups.
     pub fn clear(&mut self) {
@@ -865,7 +878,7 @@ impl PropertyBindGroups {
         render_device: &RenderDevice,
         pipeline_cache: &PipelineCache,
         gpu_images: &RenderAssets<GpuImage>,
-    ) -> Result<BindGroup, ()> {
+    ) -> Result<BindGroup, PropertyBindGroupError> {
         trace!(
             "Creating new spawner@2 bind group for property buffer #{} and binding size {} (w/ prefix sum: {})",
             property_key.buffer_index,
@@ -884,16 +897,12 @@ impl PropertyBindGroups {
             with_prefix_sum,
             texture_layout,
         ) else {
-            error!(
-                "Missing property bind group layout for binding size {:?}, referenced by effect batch.",
-                property_binding_size,
-            );
-            return Err(());
+            return Err(PropertyBindGroupError::MissingLayout(property_binding_size));
         };
 
         let align = render_device.limits().min_storage_buffer_offset_alignment;
 
-        let mut entries = if with_prefix_sum {
+        let mut entries: Vec<BindGroupEntry<'_>> = if with_prefix_sum {
             (*BindGroupEntries::sequential((
                 spawner_buffer.as_entire_binding(),
                 prefix_sum_buffer.as_entire_binding(),
@@ -931,7 +940,9 @@ impl PropertyBindGroups {
             textures: textures.iter().map(|h| h.id()).collect(),
         };
         assert_eq!(material.layout.layout.len(), material.textures.len());
-        material.append_binding_entries(4, gpu_images, &mut entries);
+        material
+            .append_binding_entries(4, gpu_images, &mut entries)
+            .map_err(PropertyBindGroupError::Material)?;
 
         trace!("Creating @2 bind group with {} entries:", entries.len());
         for e in &entries {
@@ -977,16 +988,14 @@ impl PropertyBindGroups {
         render_device: &RenderDevice,
         pipeline_cache: &PipelineCache,
         gpu_images: &RenderAssets<GpuImage>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), PropertyBindGroupError> {
         trace!("PropertyBindGroups::ensure_exists() key={property_key:?}");
 
         let property_buffer = if property_key.has_properties() {
             let Some(property_buffer) = property_cache.get_buffer(property_key.buffer_index) else {
-                error!(
-                    "Missing property buffer #{}, referenced by effect batch.",
+                return Err(PropertyBindGroupError::MissingPropertyBuffer(
                     property_key.buffer_index,
-                );
-                return Err(());
+                ));
             };
             Some(property_buffer)
         } else {
