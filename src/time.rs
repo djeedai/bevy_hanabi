@@ -207,9 +207,9 @@ mod tests {
     #[test]
     #[allow(clippy::suboptimal_flops)]
     fn test_effect_simulation_time() {
-        // This is only used for floating point comparisons, inaccurate sleep times are
-        // always fine, as we only test for the relative values between the
-        // clocks.
+        // This is only used for floating point comparisons, inaccurate sleep
+        // times are always fine, as we only test for the relative
+        // values between the clocks.
         const EPSILON: f32 = 0.000001;
 
         let mut app = make_test_app();

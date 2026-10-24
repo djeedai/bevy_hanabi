@@ -1,0 +1,109 @@
+//! Expression example.
+//!
+//! This example demonstrate how to customize the behavior of modifiers by
+//! creating complex expressions assigned to their input(s).
+//!
+//! The entire effect, including the animation, runs on the GPU exclusively. The
+//! acceleration varies based on the simulation time by building an expression
+//! based on [`ExprWriter::time()`] then assigned to the [`AccelModifier`].
+
+use super::DemoCommands as Commands;
+use bevy::{
+    camera::Hdr,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    post_process::bloom::Bloom,
+    prelude::*,
+};
+use bevy_hanabi::prelude::*;
+
+const DEMO_DESC: &str = include_str!("expr.txt");
+const DEMO_SUMMARY: &str = "GPU-driven animation with expressions.";
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Expr];
+
+declare_demo!("expr");
+
+fn effects() -> Vec<EffectAsset> {
+    let mut color_gradient = bevy_hanabi::Gradient::new();
+    color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
+    color_gradient.add_key(0.7, Vec4::new(0.0, 0.0, 4.0, 1.0));
+    color_gradient.add_key(1.0, Vec4::new(0.0, 0.0, 0.0, 0.0));
+
+    let mut size_gradient = bevy_hanabi::Gradient::new();
+    size_gradient.add_key(0.3, Vec3::new(0.2, 0.02, 1.0));
+    size_gradient.add_key(1.0, Vec3::ZERO);
+
+    let writer = ExprWriter::new();
+
+    let age = writer.lit(0.).expr();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
+
+    // Give a bit of variation by randomizing the lifetime per particle
+    let lifetime = writer.lit(2.5).uniform(writer.lit(3.5)).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Create some whirlwind effect by adding some radial acceleration pointing at
+    // the origin (0,0,0) and some upward acceleration (alongside Y). The proportion
+    // of radial acceleration varies based on the simulation time.
+    let pos = writer.attr(Attribute::POSITION);
+    let zero = writer.lit(Vec3::ZERO);
+    let radial = (pos - zero).normalized();
+    let vertical = writer.lit(Vec3::Y * 4.);
+    let anim = writer.time().sin() * writer.lit(6.) - writer.lit(6.);
+    let accel = radial * anim + vertical;
+    let update_accel = AccelModifier::new(accel.expr());
+
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        radius: writer.lit(4.).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    let init_vel = SetVelocityTangentModifier {
+        origin: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        speed: writer.lit(3.).expr(),
+    };
+
+    vec![
+        EffectAsset::new(32768, SpawnerSettings::rate(500.0.into()), writer.finish())
+            .with_name("whirlwind")
+            .init(init_pos)
+            .init(init_age)
+            .init(init_lifetime)
+            .init(init_vel)
+            .update(update_accel)
+            .render(ColorOverLifetimeModifier::new(color_gradient))
+            .render(SizeOverLifetimeModifier {
+                gradient: size_gradient,
+                screen_space_size: false,
+            })
+            .render(OrientModifier::new(OrientMode::AlongVelocity)),
+    ]
+}
+
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    );
+}
+
+fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
+    commands.spawn((
+        Transform::from_translation(Vec3::new(3., 12., 20.)).looking_at(Vec3::Y * 5., Vec3::Y),
+        Camera3d::default(),
+        Camera {
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+        Hdr,
+        Tonemapping::None,
+        DebandDither::Disabled,
+        Bloom::default(),
+    ));
+
+    let effect = super::demo_effect(&demos, "expr", 0);
+
+    commands.spawn((Name::new("whirlwind"), ParticleEffect::new(effect)));
+}

@@ -35,17 +35,17 @@ For more information about WebAssembly support, see also:
 
 ## Running the examples
 
-The simplest way is to make use of the `http-server` NPM package,
-combined with `npx` from NodeJS to execute it.
+Build the unified example runner for WebAssembly and serve it over HTTP:
 
 - Install [NodeJS](https://nodejs.org/)
-- Copy the `assets/` folder into `examples\wasm\`;
-  this is a quick and simple workaround for the HTTP server to find the assets
+- Run `./build_examples_wasm.sh` (or `build_examples_wasm.bat` on Windows)
 - Execute `npx http-server examples\wasm`,
   which will run the `http-server` package without having to install it
-- Open a compatible browser (e.g. Chrome or Edge) at `http://127.0.0.1:8080/`
-  (or the address `http-server` will print in the console)
+- Open `http://127.0.0.1:8080/` in a compatible browser (e.g. Chrome or Edge)
+- Choose an example from the in-app menu
 
 See also the [WebAssembly section](https://bevy-cheatbook.github.io/platforms/wasm.html)
 of the Unofficial Bevy Cheat Book
 for more tools and ways to build and run Bevy apps on Web.
+
+The desktop runner also accepts `--demo <id>` to skip the menu.

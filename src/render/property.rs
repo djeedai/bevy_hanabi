@@ -136,12 +136,13 @@ impl PropertyBuffer {
     #[allow(dead_code)]
     #[inline]
     pub fn max_binding(&self) -> Option<BindingResource<'_>> {
-        // FIXME - Return a Buffer wrapper first, which can be unwrapped, then from that
-        // wrapper implement all the xxx_binding() helpers. That avoids a bunch of "if
-        // let Some()" everywhere when we know the buffer is valid. The only reason the
-        // buffer might not be valid is if it was not created, and in that case
-        // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied out
-        // before.
+        // FIXME - Return a Buffer wrapper first, which can be unwrapped, then
+        // from that wrapper implement all the xxx_binding() helpers.
+        // That avoids a bunch of "if let Some()" everywhere when we
+        // know the buffer is valid. The only reason the buffer might
+        // not be valid is if it was not created, and in that case
+        // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied
+        // out before.
         let buffer = self.buffer()?;
         Some(BindingResource::Buffer(BufferBinding {
             buffer,
@@ -209,7 +210,8 @@ impl PropertyBuffer {
                 break;
             }
 
-            // Otherwise try to find the smallest oversized slot to reduce wasted space
+            // Otherwise try to find the smallest oversized slot to reduce
+            // wasted space
             if let Some(best_slot) = best_slot.as_mut() {
                 if wasted_size < best_slot.0 {
                     *best_slot = (wasted_size, index);
@@ -229,7 +231,8 @@ impl PropertyBuffer {
 
             let padding_bytes = aligned_start - range.start;
             if padding_bytes > 0 {
-                // If the allocation doesn't span the entire free space, splice it.
+                // If the allocation doesn't span the entire free space, splice
+                // it.
                 self.free_ranges[index].0.end = aligned_start;
             } else if size < free_size {
                 self.free_ranges[index].0.start += size;
@@ -280,8 +283,8 @@ impl PropertyBuffer {
         }
 
         if range.end == end {
-            // Walk the (sorted) free list to also dequeue any range which is now at the end
-            // of the buffer
+            // Walk the (sorted) free list to also dequeue any range which is
+            // now at the end of the buffer
             let mut new_end = range.start;
             while let Some(free_range) = self.free_ranges.pop() {
                 if free_range.0.end == new_end {
@@ -292,8 +295,9 @@ impl PropertyBuffer {
                 }
             }
 
-            // Note: we can't really recover any padding here because we don't know the
-            // exact size of that allocation, only its row-aligned size.
+            // Note: we can't really recover any padding here because we don't
+            // know the exact size of that allocation, only its
+            // row-aligned size.
             if new_end > 0 {
                 self.values.truncate(new_end as usize);
             } else {
@@ -354,8 +358,8 @@ impl PropertyBuffer {
                     }
                 }
             } else {
-                // The range exists in the free list, this means it's already removed. This is a
-                // duplicate; ignore it.
+                // The range exists in the free list, this means it's already
+                // removed. This is a duplicate; ignore it.
                 return false;
             }
         }
@@ -470,9 +474,10 @@ impl PropertyBuffer {
     /// was allocated. On failure, this returns `None`.
     #[inline]
     pub fn allocate(&mut self, layout: &PropertyLayout) -> Option<u32> {
-        // Note: allocate with min_binding_size() and not cpu_size(), because the buffer
-        // needs to be large enough to host at least one struct when bound to a shader,
-        // and in WGSL the struct is padded to its align size.
+        // Note: allocate with min_binding_size() and not cpu_size(), because
+        // the buffer needs to be large enough to host at least one
+        // struct when bound to a shader, and in WGSL the struct is
+        // padded to its align size.
         let size = layout.min_binding_size().get() as u32;
         assert!(size > 0);
 
@@ -572,13 +577,14 @@ impl PropertyCache {
         //     .contains(FeaturesWebGPU::INDIRECT_FIRST_INSTANCE)
         //     && (instance.has(VALIDATION_INDIRECT_CALL) || (backend != DX12));
         //
-        // Anyway we create both with/without prefix sum variants, because init/update
-        // unconditionally use the "with" variant, and render conditionally use one or
-        // the other depending on multi-draw availability. Technically we could skip the
+        // Anyway we create both with/without prefix sum variants, because
+        // init/update unconditionally use the "with" variant, and
+        // render conditionally use one or the other depending on
+        // multi-draw availability. Technically we could skip the
         // no-prefix-sum variant if we're sure we always use multi-draw though.
 
-        // Create the default bind group layout when no properties and no material
-        // textures are present.
+        // Create the default bind group layout when no properties and no
+        // material textures are present.
         let bgl_prefix = BindGroupLayoutDescriptor::new(
             "hanabi:bgl:no_property",
             &BindGroupLayoutEntries::sequential(
@@ -667,7 +673,8 @@ impl PropertyCache {
             let base_key = BindGroupLayoutKey::base(with_prefix_sum);
             let mut bgl = self.bind_group_layout_descs.get(&base_key).unwrap().clone();
 
-            // Make a layout for the given binding size and texture layout if needed
+            // Make a layout for the given binding size and texture layout if
+            // needed
             let key = BindGroupLayoutKey {
                 binding_byte_size: properties_min_binding_size,
                 with_prefix_sum,
@@ -928,7 +935,8 @@ impl PropertyBindGroups {
             .to_vec()
         };
         if let Some(property_buffer) = property_buffer {
-            // @group(2) @binding(3) var<storage, read> properties : array<Properties>
+            // @group(2) @binding(3) var<storage, read> properties :
+            // array<Properties>
             entries.push(BindGroupEntry {
                 binding: 3,
                 resource: property_buffer.as_entire_binding(),
@@ -1102,22 +1110,26 @@ pub(crate) fn allocate_properties(
         &mut q_effects
     {
         if let Some(mut cached_effect_properties) = maybe_cached_effect_properties {
-            // Note: Technically we should compare the entire layout, but in practice the
-            // allocation only cares about the size of the layout to store all properties,
-            // and not about the actual layout itself (where each property is). So to reduce
-            // updates and maximize the chance of reuse, compare the allocation size only.
+            // Note: Technically we should compare the entire layout, but in
+            // practice the allocation only cares about the size of
+            // the layout to store all properties, and not about the
+            // actual layout itself (where each property is). So to reduce
+            // updates and maximize the chance of reuse, compare the allocation
+            // size only.
             if cached_effect_properties.property_layout.min_binding_size()
                 != extracted_properties.property_layout.min_binding_size()
             {
-                // Free the old allocations. We're sure there's one because the component
-                // exists.
-                // TODO - handle SlabState return value to invalidate property bind groups!!
+                // Free the old allocations. We're sure there's one because the
+                // component exists.
+                // TODO - handle SlabState return value to invalidate property
+                // bind groups!!
                 if let Err(err) = property_cache.free(cached_effect_properties.as_ref()) {
                     error!("Error while freeing cached properties for effect {entity:?}: {err:?}");
                 }
 
-                // If the layout is not empty, which means we need to store at least one
-                // property, then allocate a new storate. Otherwise remove the component.
+                // If the layout is not empty, which means we need to store at
+                // least one property, then allocate a new
+                // storate. Otherwise remove the component.
                 if extracted_properties.property_layout.is_empty() {
                     commands.entity(entity).remove::<CachedEffectProperties>();
                 } else {
@@ -1155,8 +1167,8 @@ pub(crate) fn allocate_properties(
         }
     }
 
-    // For no-property bind groups, just ensure the layout exists because we will
-    // need it when creating the pipelines.
+    // For no-property bind groups, just ensure the layout exists because we
+    // will need it when creating the pipelines.
     let empty_propert_layout = PropertyLayout::default();
     for extracted_effect in &q_noprop_effects {
         property_cache
@@ -1230,8 +1242,8 @@ mod gpu_tests {
     use crate::{test_utils::MockRenderer, Property};
 
     fn submit_and_wait(device: &RenderDevice, queue: &RenderQueue) {
-        // Create a dummy CommandBuffer to force the write_buffer() call to have any
-        // effect.
+        // Create a dummy CommandBuffer to force the write_buffer() call to have
+        // any effect.
         let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("test"),
         });
@@ -1299,8 +1311,8 @@ mod gpu_tests {
 
         // [----][2---][3333]
 
-        // Alloc 4 (x2); fit inside start of buffer (16B), but gap after #2 is smaller
-        // (12B)
+        // Alloc 4 (x2); fit inside start of buffer (16B), but gap after #2 is
+        // smaller (12B)
         let index4 = pb.allocate(&layout4).unwrap();
         let index5 = pb.allocate(&layout4).unwrap();
         let end2 = (index2 + 1) * size4;

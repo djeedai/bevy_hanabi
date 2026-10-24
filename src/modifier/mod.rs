@@ -316,8 +316,8 @@ impl EvalContext for ShaderWriter<'_> {
     }
 
     fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
-        // On cache hit, don't re-evaluate the expression to prevent any duplicate
-        // side-effect.
+        // On cache hit, don't re-evaluate the expression to prevent any
+        // duplicate side-effect.
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
@@ -510,8 +510,8 @@ impl EvalContext for RenderContext<'_> {
     }
 
     fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
-        // On cache hit, don't re-evaluate the expression to prevent any duplicate
-        // side-effect.
+        // On cache hit, don't re-evaluate the expression to prevent any
+        // duplicate side-effect.
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
@@ -692,7 +692,8 @@ impl EmitSpawnEventModifier {
         module: &mut Module,
         context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        // FIXME - mixing (ex-)channel and event buffer index; this should be automated
+        // FIXME - mixing (ex-)channel and event buffer index; this should be
+        // automated
         let channel_index = self.child_index;
         // TODO - validate GPU spawn events are in use in the eval context...
 
@@ -801,6 +802,13 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
     }
 
     // accel.rs
+    register_reflect_modifier::<EmitSpawnEventModifier>(type_registry, |module| {
+        Box::new(EmitSpawnEventModifier {
+            condition: EventEmitCondition::OnDie,
+            count: module.lit(1u32),
+            child_index: 0,
+        })
+    });
     register_reflect_modifier::<AccelModifier>(type_registry, |module| {
         let accel = module.lit(Vec3::X);
         Box::new(AccelModifier::new(accel))
@@ -958,8 +966,8 @@ mod tests {
     use crate::{BuiltInOperator, ExprWriter, ScalarType};
 
     fn make_test_modifier() -> SetPositionSphereModifier {
-        // We use a dummy module here because we don't care about the values and won't
-        // evaluate the modifier.
+        // We use a dummy module here because we don't care about the values and
+        // won't evaluate the modifier.
         let mut m = Module::default();
         SetPositionSphereModifier {
             center: m.lit(Vec3::ZERO),
@@ -1032,8 +1040,9 @@ mod tests {
         let m = make_test_modifier();
         let bm: BoxedModifier = Box::new(m);
 
-        // Use reflect-based serialization with a TypeRegistry so the boxed trait
-        // object can be serialized via the registered ReflectModifier factories.
+        // Use reflect-based serialization with a TypeRegistry so the boxed
+        // trait object can be serialized via the registered
+        // ReflectModifier factories.
         let type_registry = AppTypeRegistry::new_with_derived_types();
         register_modifiers(&type_registry);
         let registry = type_registry.read();
@@ -1043,8 +1052,9 @@ mod tests {
         let s = ron::to_string(&serializer).unwrap();
         println!("modifier: {:?}", s);
 
-        // Deserialize via ReflectDeserializer and construct a concrete instance using
-        // the ReflectModifier factory (same approach as in registry serde_impl).
+        // Deserialize via ReflectDeserializer and construct a concrete instance
+        // using the ReflectModifier factory (same approach as in
+        // registry serde_impl).
         let mut de = ron::de::Deserializer::from_str(&s).unwrap();
         let reflect_deser = bevy::reflect::serde::ReflectDeserializer::new(&registry);
         let boxed_partial = reflect_deser.deserialize(&mut de).unwrap();

@@ -15,6 +15,7 @@ exclude = [
   "docs/*.svg",
   "docs/*.png",
   "examples/*.gif",
+  "examples/demo/*.gif",
   "examples/*.png",
   "examples/wasm/*",
   ".github",
@@ -91,7 +92,11 @@ naga = { version = "30", features = ["wgsl-in"] }
 wesl = { version = "0.6", features = ["naga-ext"] }
 # Enable all features by default in examples to make it easier to run them and to use
 # extra features like text rendering or gizmos, which are example-specific.
-bevy = { version = "0.20", default-features = true }
+bevy = {
+    version = "0.20",
+    default-features = true,
+    features = ["system_font_discovery"],
+}
 
 # For procedural texture generation in examples
 noise = "0.9"
@@ -99,73 +104,7 @@ noise = "0.9"
 futures = "0.3"
 
 [[example]]
-name = "firework"
-
-[[example]]
-name = "portal"
-
-[[example]]
-name = "expr"
-
-[[example]]
-name = "spawn"
-
-[[example]]
-name = "multicam"
-
-[[example]]
-name = "visibility"
-
-[[example]]
-name = "random"
-
-[[example]]
-name = "spawn_on_command"
-
-[[example]]
-name = "activate"
-
-[[example]]
-name = "force_field"
-
-[[example]]
-name = "lifetime"
-
-[[example]]
-name = "init"
-
-[[example]]
-name = "instancing"
-
-[[example]]
-name = "gradient"
-
-[[example]]
-name = "circle"
-
-[[example]]
-name = "billboard"
-
-[[example]]
-name = "2d"
-
-[[example]]
-name = "worms"
-
-[[example]]
-name = "ribbon"
-
-[[example]]
-name = "ordering"
-
-[[example]]
-name = "puffs"
-
-[[example]]
-name = "lightning"
-
-[[example]]
-name = "lut"
+name = "demo"
 
 [[test]]
 name = "empty_effect"

@@ -1,59 +1,20 @@
-@echo on
+@echo off
+setlocal
 
-echo Check that wasm-bindgen -V returns 0.2.125, otherwise cargo install wasm-bindgen-cli --version 0.2.125
+set "WASM_BINDGEN_VERSION=0.2.129"
+wasm-bindgen --version | findstr /C:"%WASM_BINDGEN_VERSION%" >nul
+if errorlevel 1 (
+    echo Install wasm-bindgen-cli %WASM_BINDGEN_VERSION% 1>&2
+    exit /b 1
+)
 
-echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 set RUSTFLAGS=--cfg web_sys_unstable_apis --cfg getrandom_backend="wasm_js"
 
-echo Build all examples for WASM...
-cargo b --release --example lightning --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example firework --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example portal --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example expr --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example spawn --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example multicam --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example visibility --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example random --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example spawn_on_command --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example activate --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example force_field --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example init --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example lifetime --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example ordering --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example ribbon --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example gradient --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example circle --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example billboard --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example worms --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example instancing --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example puffs --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example lut --target wasm32-unknown-unknown --features="bevy/webgpu"
-cargo b --release --example 2d --target wasm32-unknown-unknown --features="bevy/webgpu"
+cargo build --release --example demo --target wasm32-unknown-unknown --features="bevy/webgpu"
+if errorlevel 1 exit /b %errorlevel%
 
-wasm-bindgen --out-name wasm_lightning --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lightning.wasm
-wasm-bindgen --out-name wasm_firework --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
-wasm-bindgen --out-name wasm_portal --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/portal.wasm
-wasm-bindgen --out-name wasm_expr --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/expr.wasm
-wasm-bindgen --out-name wasm_spawn --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn.wasm
-wasm-bindgen --out-name wasm_multicam --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/multicam.wasm
-wasm-bindgen --out-name wasm_visibility --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/visibility.wasm
-wasm-bindgen --out-name wasm_random --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/random.wasm
-wasm-bindgen --out-name wasm_spawn_on_command --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn_on_command.wasm
-wasm-bindgen --out-name wasm_activate --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/activate.wasm
-wasm-bindgen --out-name wasm_force_field --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/force_field.wasm
-wasm-bindgen --out-name wasm_init --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/init.wasm
-wasm-bindgen --out-name wasm_lifetime --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lifetime.wasm
-wasm-bindgen --out-name wasm_ordering --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ordering.wasm
-wasm-bindgen --out-name wasm_ribbon --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ribbon.wasm
-wasm-bindgen --out-name wasm_gradient --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/gradient.wasm
-wasm-bindgen --out-name wasm_circle --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/circle.wasm
-wasm-bindgen --out-name wasm_billboard --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/billboard.wasm
-wasm-bindgen --out-name wasm_worms --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
-wasm-bindgen --out-name wasm_instancing --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
-wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/puffs.wasm
-wasm-bindgen --out-name wasm_lut --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lut.wasm
-wasm-bindgen --out-name wasm_2d --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
+wasm-bindgen --out-name wasm_demo --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/demo.wasm
+if errorlevel 1 exit /b %errorlevel%
 
-echo Done. See docs/wasm.md for help on running the examples locally.
-
-set RUSTFLAGS=
+echo Done. Serve examples/wasm and open index.html.
+endlocal

@@ -1,0 +1,200 @@
+(
+  name: "worms_heads",
+  capacity: 100,
+  spawner: (
+    count: Single(2.0),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "position",
+        value: "#5",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "f32_0",
+        value: "#8",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#15",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#16",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "color",
+        value: "#14",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "u32_0",
+        value: "#17",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "velocity",
+        value: "#32",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::EmitSpawnEventModifier": (
+        condition: Always,
+        count: "#33",
+        child_index: 0,
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::SetSizeModifier": (
+        size: Single((0.4, 0.4, 0.4)),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::ParticleTextureModifier": (
+        texture_slot: 0,
+        sample_mapping: Modulate,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      BuiltIn((
+        operator: Rand(Vector((
+          elem_type: Float,
+          count: 3,
+        ))),
+      )),
+      Literal(Vector(Vec3((-0.5, -0.5, 0.0)))),
+      Binary(
+        op: Add,
+        left: "#1",
+        right: "#2",
+      ),
+      Literal(Vector(Vec3((16.0, 16.0, 0.0)))),
+      Binary(
+        op: Mul,
+        left: "#3",
+        right: "#4",
+      ),
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: NormalRand,
+        left: "#6",
+        right: "#7",
+      ),
+      BuiltIn((
+        operator: Rand(Vector((
+          elem_type: Float,
+          count: 4,
+        ))),
+      )),
+      Literal(Vector(Vec4((1.0, 1.0, 1.0, 0.0)))),
+      Binary(
+        op: Mul,
+        left: "#9",
+        right: "#10",
+      ),
+      Literal(Vector(Vec4((0.0, 0.0, 0.0, 1.0)))),
+      Binary(
+        op: Add,
+        left: "#11",
+        right: "#12",
+      ),
+      Unary(
+        op: Pack4x8unorm,
+        expr: "#13",
+      ),
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(3.0))),
+      Attribute((
+        attr: "particle_counter",
+      )),
+      Literal(Vector(Vec3((1.0, 1.0, 0.0)))),
+      Attribute((
+        attr: "f32_0",
+      )),
+      BuiltIn((
+        operator: Time,
+      )),
+      Literal(Scalar(Float(5.0))),
+      Binary(
+        op: Mul,
+        left: "#20",
+        right: "#21",
+      ),
+      Unary(
+        op: Sin,
+        expr: "#22",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Mul,
+        left: "#23",
+        right: "#24",
+      ),
+      Binary(
+        op: Add,
+        left: "#19",
+        right: "#25",
+      ),
+      Binary(
+        op: Mul,
+        left: "#18",
+        right: "#26",
+      ),
+      Literal(Vector(Vec3((0.0, 1.5707964, 0.0)))),
+      Binary(
+        op: Add,
+        left: "#27",
+        right: "#28",
+      ),
+      Unary(
+        op: Sin,
+        expr: "#29",
+      ),
+      Literal(Scalar(Float(5.0))),
+      Binary(
+        op: Mul,
+        left: "#30",
+        right: "#31",
+      ),
+      Literal(Scalar(Uint(1))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [
+        (
+          name: "shape",
+          dimension: r#2d,
+        ),
+      ],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

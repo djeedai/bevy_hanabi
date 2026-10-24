@@ -265,8 +265,8 @@ impl ParticleSlab {
             "Attempted to create a zero-sized effect buffer."
         );
 
-        // Allocate the particle buffer itself, containing the attributes of each
-        // particle.
+        // Allocate the particle buffer itself, containing the attributes of
+        // each particle.
         #[cfg(debug_assertions)]
         let mapped_at_creation = true;
         #[cfg(not(debug_assertions))]
@@ -325,8 +325,8 @@ impl ParticleSlab {
         }
 
         // Create the render layout.
-        // TODO - move; this only depends on the particle and spawner layouts, can be
-        // shared across slabs
+        // TODO - move; this only depends on the particle and spawner layouts,
+        // can be shared across slabs
         // FIXME - duplicated in ParticlesRenderPipeline::specialize()
         let label = format!("hanabi:bgl:render:particles@1:slab{}", slab_id.0);
         let render_particles_buffer_layout = render_device.create_bind_group_layout(
@@ -357,8 +357,8 @@ impl ParticleSlab {
         }
     }
 
-    // TODO - move; this only depends on the particle and spawner layouts, can be
-    // shared across slabs
+    // TODO - move; this only depends on the particle and spawner layouts, can
+    // be shared across slabs
     pub fn render_particles_buffer_layout(&self) -> &BindGroupLayout {
         &self.render_particles_buffer_layout
     }
@@ -570,8 +570,8 @@ impl ParticleSlab {
         // If slice is at the end of the buffer, reduce total used size
         if slice.range.end == self.used_size {
             self.used_size = slice.range.start;
-            // Check other free slices to further reduce used size and drain the free slice
-            // list
+            // Check other free slices to further reduce used size and drain the
+            // free slice list
             while let Some(free_slice) = self.free_slices.last() {
                 if free_slice.end == self.used_size {
                     self.used_size = free_slice.start;
@@ -585,8 +585,8 @@ impl ParticleSlab {
                 // The buffer is not used anymore, free it too
                 SlabState::Free
             } else {
-                // There are still some slices used, the last one of which ends at
-                // self.used_size
+                // There are still some slices used, the last one of which ends
+                // at self.used_size
                 SlabState::Used
             }
         } else {
@@ -617,8 +617,9 @@ impl ParticleSlab {
         handle: &Handle<EffectAsset>,
         _particle_layout: &ParticleLayout,
     ) -> bool {
-        // TODO - replace with check particle layout is compatible to allow tighter
-        // packing in less buffers, and update in the less dispatch calls
+        // TODO - replace with check particle layout is compatible to allow
+        // tighter packing in less buffers, and update in the less
+        // dispatch calls
         *handle == self.asset
     }
 }
@@ -949,9 +950,10 @@ impl EffectCache {
         min_binding_size: NonZeroU32,
         parent_min_binding_size: Option<NonZeroU32>,
     ) -> &BindGroupLayoutDescriptor {
-        // FIXME - This "ensure" pattern means we never de-allocate entries. This is
-        // probably fine, because there's a limited number of realistic combinations,
-        // but could cause wastes if e.g. loading widely different scenes.
+        // FIXME - This "ensure" pattern means we never de-allocate entries.
+        // This is probably fine, because there's a limited number of
+        // realistic combinations, but could cause wastes if e.g.
+        // loading widely different scenes.
         let key = ParticleBindGroupLayoutKey {
             min_binding_size,
             parent_min_binding_size,
@@ -1139,7 +1141,8 @@ fn create_metadata_init_bind_group_layout_desc(
     });
 
     if consume_gpu_spawn_events {
-        // @group(3) @binding(1) var<storage, read> child_info_buffer : ChildInfoBuffer;
+        // @group(3) @binding(1) var<storage, read> child_info_buffer :
+        // ChildInfoBuffer;
         entries.push(BindGroupLayoutEntry {
             binding: 1,
             visibility: ShaderStages::COMPUTE,
@@ -1204,8 +1207,8 @@ fn create_metadata_update_bind_group_layout_desc(
     });
 
     if num_event_buffers > 0 {
-        // @group(3) @binding(1) var<storage, read_write> child_infos : array<ChildInfo,
-        // N>;
+        // @group(3) @binding(1) var<storage, read_write> child_infos :
+        // array<ChildInfo, N>;
         entries.push(BindGroupLayoutEntry {
             binding: 1,
             visibility: ShaderStages::COMPUTE,
@@ -1218,8 +1221,8 @@ fn create_metadata_update_bind_group_layout_desc(
         });
 
         for i in 0..num_event_buffers {
-            // @group(3) @binding(2+i) var<storage, read_write> event_buffer_#i :
-            // EventBuffer;
+            // @group(3) @binding(2+i) var<storage, read_write> event_buffer_#i
+            // : EventBuffer;
             entries.push(BindGroupLayoutEntry {
                 binding: 2 + i,
                 visibility: ShaderStages::COMPUTE,
@@ -1448,9 +1451,9 @@ mod gpu_tests {
         assert_eq!(buffer.free_slices.len(), 1);
         assert_eq!(buffer.free_slices[0], 0..32);
 
-        // Try to allocate a slice larger than slice0, such that slice0 cannot be
-        // recycled, and instead the new slice has to be appended after all
-        // existing ones.
+        // Try to allocate a slice larger than slice0, such that slice0 cannot
+        // be recycled, and instead the new slice has to be appended
+        // after all existing ones.
         let slice2 = buffer.allocate(64);
         assert!(slice2.is_some());
         let slice2 = slice2.unwrap();
@@ -1466,8 +1469,8 @@ mod gpu_tests {
         assert_eq!(buffer.free_slices.len(), 1); // split
         assert_eq!(buffer.free_slices[0], 16..32);
 
-        // Allocate a second small slice that fits exactly the left space, completely
-        // recycling
+        // Allocate a second small slice that fits exactly the left space,
+        // completely recycling
         let slice4 = buffer.allocate(16);
         assert!(slice4.is_some());
         let slice4 = slice4.unwrap();
@@ -1516,8 +1519,8 @@ mod gpu_tests {
 
         // Remove the first effect instance
         let buffer_state = effect_cache.remove(&effect1).unwrap();
-        // Note: currently batching is disabled, so each instance has its own buffer,
-        // which becomes unused once the instance is destroyed.
+        // Note: currently batching is disabled, so each instance has its own
+        // buffer, which becomes unused once the instance is destroyed.
         assert_eq!(buffer_state, SlabState::Free);
         assert_eq!(effect_cache.slabs().len(), 2);
         {
@@ -1536,7 +1539,8 @@ mod gpu_tests {
             item_size
         );
         assert_eq!(slice3.range, 0..capacity);
-        // Note: currently batching is disabled, so each instance has its own buffer.
+        // Note: currently batching is disabled, so each instance has its own
+        // buffer.
         assert_eq!(effect_cache.slabs().len(), 2);
         {
             let slabs = effect_cache.slabs();

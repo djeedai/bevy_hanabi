@@ -1,0 +1,90 @@
+(
+  name: "alternate instancing",
+  capacity: 512,
+  spawner: (
+    count: Single(102.0),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Local,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionSphereModifier": (
+        center: "#2",
+        radius: "#3",
+        dimension: Volume,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::velocity::SetVelocityTangentModifier": (
+        origin: "#4",
+        axis: "#5",
+        speed: "#6",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#1",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::accel::RadialAccelModifier": (
+        origin: "#7",
+        accel: "#8",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "color",
+        value: "#9",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ParticleTextureModifier": (
+        texture_slot: 0,
+        sample_mapping: Modulate,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(5.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Scalar(Float(7.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((0.0, 0.0, 1.0)))),
+      Literal(Scalar(Float(4.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Scalar(Int(-3))),
+      Property(1),
+    ],
+    properties: [
+      (
+        name: "prop_color",
+        default_value: Scalar(Uint(4294967295)),
+      ),
+    ],
+    texture_layout: (
+      layout: [
+        (
+          name: "color",
+          dimension: r#2d,
+        ),
+      ],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

@@ -1,0 +1,168 @@
+(
+  name: "trail",
+  capacity: 10000,
+  spawner: (
+    count: Single(1.0),
+    spawn_duration: Single(0.0),
+    period: Single(0.0),
+    cycle_count: 1,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::attr::InheritAttributeModifier": (
+        attribute: "position",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "velocity",
+        value: "#13",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#14",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#17",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "color",
+        value: "#1",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::force::LinearDragModifier": (
+        drag: "#19",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::accel::AccelModifier": (
+        accel: "#18",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (4.0, 4.0, 4.0, 1.0),
+            ),
+            (
+              ratio: 0.6,
+              value: (4.0, 4.0, 4.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (4.0, 4.0, 4.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Modulate,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.2, 0.05, 0.05),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::OrientModifier": (
+        mode: AlongVelocity,
+        rotation: None,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      ParentAttribute((
+        attr: "u32_0",
+      )),
+      Attribute((
+        attr: "position",
+      )),
+      Literal(Scalar(Float(40.0))),
+      Literal(Scalar(Float(60.0))),
+      Binary(
+        op: UniformRand,
+        left: "#3",
+        right: "#4",
+      ),
+      BuiltIn((
+        operator: Rand(Vector((
+          elem_type: Float,
+          count: 3,
+        ))),
+      )),
+      Literal(Scalar(Float(2.0))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#7",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#8",
+        right: "#9",
+      ),
+      Unary(
+        op: Normalize,
+        expr: "#10",
+      ),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#5",
+      ),
+      Binary(
+        op: Add,
+        left: "#2",
+        right: "#12",
+      ),
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(0.8))),
+      Literal(Scalar(Float(1.2))),
+      Binary(
+        op: UniformRand,
+        left: "#15",
+        right: "#16",
+      ),
+      Literal(Vector(Vec3((-0.0, -16.0, -0.0)))),
+      Literal(Scalar(Float(4.0))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

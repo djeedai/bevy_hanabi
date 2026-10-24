@@ -1,0 +1,378 @@
+//! Instancing
+//!
+//! An example to demonstrate instancing a single effect asset multiple times.
+//! The example defines a single [`EffectAsset`] then creates many
+//! [`ParticleEffect`]s from that same asset, disposed in a grid pattern.
+//!
+//! Use the SPACE key to add more effect instances, or the DELETE key to remove
+//! an existing instance.
+
+#![allow(dead_code)]
+
+use super::DemoCommands as Commands;
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
+use bevy_hanabi::prelude::*;
+use rand::RngExt;
+
+use crate::utils;
+
+const DEMO_DESC: &str = include_str!("instancing.txt");
+const DEMO_SUMMARY: &str = "Spawn and remove many effect instances.";
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Perf];
+
+/// Per-effect instance Hue offset, to show that all instances are unique.
+#[derive(Component)]
+struct HueOffset(pub f32);
+
+#[derive(Default, Resource)]
+struct InstanceManager {
+    effect: Handle<EffectAsset>,
+    alt_effect: Handle<EffectAsset>,
+    texture: Handle<Image>,
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+    instances: Vec<Option<Entity>>,
+    grid_size: IVec2,
+    count: usize,
+    frame: u64,
+}
+
+impl InstanceManager {
+    pub fn new(half_width: i32, half_height: i32) -> Self {
+        let grid_size = IVec2::new(half_width * 2 + 1, half_height * 2 + 1);
+        let count = grid_size.x as usize * grid_size.y as usize;
+        let mut instances = Vec::with_capacity(count);
+        instances.resize(count, None);
+        Self {
+            effect: default(),
+            alt_effect: default(),
+            texture: default(),
+            mesh: default(),
+            material: default(),
+            instances,
+            grid_size,
+            count: 0,
+            frame: 0,
+        }
+    }
+
+    /// Get the origin of the grid in the 2D camera space. This is the offset to
+    /// apply to a particle effect to transform it from the grid space to the
+    /// camera space.
+    pub fn origin(&self) -> IVec2 {
+        IVec2::new(-(self.grid_size.x - 1) / 2, -(self.grid_size.y - 1) / 2)
+    }
+
+    /// Spawn a particle effect at the given index in the grid. The index
+    /// determines both the position in the global effect array and the
+    /// associated 2D grid position. If a particle effect already exists at this
+    /// index / grid position, the call is ignored.
+    pub fn spawn_index(&mut self, index: i32, commands: &mut Commands, alt: bool) {
+        if self.count >= self.instances.len() {
+            return;
+        }
+
+        let origin = self.origin();
+
+        let entry = &mut self.instances[index as usize];
+        if entry.is_some() {
+            return;
+        }
+
+        let pos = origin + IVec2::new(index % self.grid_size.x, index / self.grid_size.x);
+
+        let mut thread_rng = rand::rng();
+        let hue_offset = thread_rng.random_range(0..360) as f32;
+
+        *entry = Some(
+            commands
+                .spawn((
+                    Name::new(format!("{:?}", pos)),
+                    ParticleEffect::new(if alt {
+                        self.alt_effect.clone()
+                    } else {
+                        self.effect.clone()
+                    }),
+                    Transform::from_translation(Vec3::new(
+                        pos.x as f32 * 10.,
+                        pos.y as f32 * 10.,
+                        0.,
+                    )),
+                    // Only used if alt_effect, but just simpler to add all the time for this
+                    // example only.
+                    EffectMaterial {
+                        images: vec![self.texture.clone()],
+                    },
+                    // Only used if alt_effect, but just simpler to add all the time for this
+                    // example only.
+                    EffectProperties::default(),
+                    // Set a unique random Hue offset per effect instance, so that they don't all
+                    // look the same.
+                    HueOffset(hue_offset),
+                ))
+                .with_children(|p| {
+                    // Reference cube to visualize the emit origin
+                    p.spawn((
+                        Mesh3d(self.mesh.clone()),
+                        MeshMaterial3d(self.material.clone()),
+                        Name::new("source"),
+                    ));
+                })
+                .id(),
+        );
+
+        self.count += 1;
+    }
+
+    /// Spawn a particle effect at a random free position in the grid. The
+    /// effect is always spawned, unless the grid is full.
+    pub fn spawn_random(&mut self, commands: &mut Commands, alt: bool) {
+        if self.count >= self.instances.len() {
+            return;
+        }
+        let free_count = self.instances.len() - self.count;
+
+        let mut thread_rng = rand::rng();
+        let index = thread_rng.random_range(0..free_count);
+        let (index, _) = self
+            .instances
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, entity)| entity.is_none())
+            .nth(index)
+            .unwrap();
+        self.spawn_index(index as i32, commands, alt);
+    }
+
+    /// Despawn the n-th existing particle effect.
+    pub fn despawn_nth(&mut self, commands: &mut Commands, n: usize) {
+        let entry = self
+            .instances
+            .iter_mut()
+            .filter(|entity| entity.is_some())
+            .nth(n)
+            .unwrap();
+        let entity = entry.take().unwrap();
+        if let Ok(mut entity_commands) = commands.get_entity(entity) {
+            entity_commands.despawn();
+        }
+        self.count -= 1;
+    }
+
+    /// Despawn the last particle effect spawned.
+    pub fn despawn_last(&mut self, commands: &mut Commands) {
+        if self.count > 0 {
+            self.despawn_nth(commands, self.count - 1);
+        }
+    }
+
+    /// Randomly despawn one of the existing particle effects, if any.
+    pub fn despawn_random(&mut self, commands: &mut Commands) {
+        if self.count > 0 {
+            let mut thread_rng = rand::rng();
+            let index = thread_rng.random_range(0..self.count);
+            self.despawn_nth(commands, index);
+        }
+    }
+
+    /// Despawn all existing particle effects.
+    pub fn despawn_all(&mut self, commands: &mut Commands) {
+        for entity in &mut self.instances {
+            if let Some(entity) = entity.take() {
+                if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                    entity_commands.despawn();
+                }
+            }
+        }
+        self.count = 0;
+    }
+}
+
+declare_demo!("instancing");
+
+fn effects() -> Vec<EffectAsset> {
+    let writer = ExprWriter::new();
+
+    let age = writer.lit(0.).expr();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
+
+    let lifetime = writer.lit(12.).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(1.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    let init_vel = SetVelocitySphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        speed: writer.lit(2.).expr(),
+    };
+
+    let prop_color = writer.add_property("prop_color", 0xFFFFFFFFu32.into());
+    let prop_color = writer.prop(prop_color);
+    let update_col = SetAttributeModifier::new(Attribute::COLOR, prop_color.expr());
+
+    let effect = EffectAsset::new(512, SpawnerSettings::rate(50.0.into()), writer.finish())
+        .with_name("instancing")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_col);
+
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(7.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    let init_vel = SetVelocityTangentModifier {
+        origin: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Z).expr(),
+        speed: writer.lit(4.).expr(),
+    };
+
+    let radial_accel =
+        RadialAccelModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(-3).expr());
+
+    let prop_color = writer.add_property("prop_color", 0xFFFFFFFFu32.into());
+    let prop_color = writer.prop(prop_color);
+    let update_col = SetAttributeModifier::new(Attribute::COLOR, prop_color.expr());
+
+    let mut module = writer.finish();
+    module.add_texture_slot("color", SlotDimension::D2);
+
+    let alt_effect = EffectAsset::new(512, SpawnerSettings::rate(102.0.into()), module)
+        .with_simulation_space(SimulationSpace::Local)
+        .with_name("alternate instancing")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_lifetime)
+        .update(radial_accel)
+        .update(update_col)
+        .render(ParticleTextureModifier {
+            texture_slot: 0,
+            sample_mapping: ImageSampleMapping::Modulate,
+        });
+    vec![effect, alt_effect]
+}
+
+fn install(app: &mut App, entity: Entity) {
+    app.insert_resource(InstanceManager::new(5, 4))
+        .add_systems(
+            OnEnter(super::DemoState::Running),
+            setup.run_if(super::demo_selected(entity)),
+        )
+        .add_systems(
+            Update,
+            (keyboard_input_system, update_color_via_property)
+                .run_if(super::demo_running(entity)),
+        );
+}
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut my_effect: ResMut<InstanceManager>,
+    asset_server: Res<AssetServer>,
+) {
+    info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
+
+    my_effect.despawn_all(&mut commands);
+
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 180.),
+        Camera3d::default(),
+        Tonemapping::None,
+        DebandDither::Disabled,
+    ));
+
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadow_maps_enabled: false,
+        ..Default::default()
+    });
+
+    let mesh = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let mat = materials.add(utils::COLOR_PURPLE);
+
+    let effect = super::demo_effect(&demos, "instancing", 0);
+    let alt_effect = super::demo_effect(&demos, "instancing", 1);
+
+    // Store the effects for later reference
+    my_effect.effect = effect;
+    my_effect.alt_effect = alt_effect;
+    my_effect.texture = asset_server.load("circle.png");
+    my_effect.mesh = mesh;
+    my_effect.material = mat;
+
+    // Spawn a few effects as example; others can be added/removed with keyboard
+    for i in 0..45 {
+        my_effect.spawn_random(&mut commands, (i % 15) == 14);
+    }
+}
+
+fn keyboard_input_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    mut my_effect: ResMut<InstanceManager>,
+) {
+    my_effect.frame += 1;
+
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        my_effect.spawn_random(&mut commands, keyboard_input.pressed(KeyCode::ShiftLeft));
+    } else if keyboard_input.just_pressed(KeyCode::Delete)
+        || keyboard_input.just_pressed(KeyCode::Backspace)
+    {
+        my_effect.despawn_random(&mut commands);
+    }
+}
+
+fn update_color_via_property(
+    time: Res<Time<EffectSimulation>>,
+    mut q_effects: Query<(&HueOffset, &mut EffectProperties)>,
+) {
+    for (hue_offset, properties) in &mut q_effects {
+        let color = Color::hsv(
+            (time.elapsed_secs() / 10.0 + hue_offset.0 / 360.0).fract() * 360.0,
+            1.0,
+            1.0,
+        )
+        .to_linear();
+        EffectProperties::set_if_changed(properties, "prop_color", color.as_u32().into());
+    }
+}
+
+fn stress_test(mut commands: Commands, mut my_effect: ResMut<InstanceManager>) {
+    let mut thread_rng = rand::rng();
+    let r = thread_rng.random_range(0_f32..1_f32);
+    if r < 0.45 {
+        let spawn_count = (r * 10.) as i32 + 1;
+        for _ in 0..spawn_count {
+            my_effect.spawn_random(&mut commands, false);
+        }
+    } else if r < 0.9 {
+        let despawn_count = ((r - 0.45) * 10.) as i32 + 1;
+        for _ in 0..despawn_count {
+            my_effect.despawn_random(&mut commands);
+        }
+    } else if r < 0.95 {
+        my_effect.despawn_all(&mut commands);
+    }
+}

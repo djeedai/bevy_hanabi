@@ -446,8 +446,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 .iter()
                 .position(|&(index, _)| index == id.0)
             {
-                // Overwrite a previous update. This ensures we never upload more than one
-                // update per row, which would waste GPU bandwidth.
+                // Overwrite a previous update. This ensures we never upload
+                // more than one update per row, which would
+                // waste GPU bandwidth.
                 self.pending_values[idx] = (id.0, value);
             } else {
                 self.pending_values.push((id.0, value));
@@ -455,8 +456,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         } else {
             let extra_index = (id.0 - allocated_count) as usize;
             assert!(extra_index < self.extra_pending_values.len());
-            // Overwrite a previous update. This ensures we never upload more than one
-            // update per row, which would waste GPU bandwidth.
+            // Overwrite a previous update. This ensures we never upload more
+            // than one update per row, which would waste GPU
+            // bandwidth.
             self.extra_pending_values[extra_index] = value;
         }
     }
@@ -470,7 +472,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     ///
     /// Returns the index of the first entry. Other entries follow right after
     /// it.
-    #[allow(dead_code)] // unused but annoying to write, so keep if we need in the future
+    #[allow(dead_code)] // unused but annoying to write, so keep if we need in
+                        // the future
     pub fn insert_contiguous(&mut self, values: impl ExactSizeIterator<Item = T>) -> BufferTableId {
         let count = values.len() as u32;
         trace!(
@@ -514,7 +517,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 self.free_indices.splice(s..=i, []);
                 index
             } else {
-                // No free range for 'count' consecutive entries. Allocate at end instead.
+                // No free range for 'count' consecutive entries. Allocate at
+                // end instead.
                 let index = self.active_count;
                 if index == self.capacity {
                     self.capacity += count;
@@ -560,14 +564,15 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         let index = id.0;
         assert!(index < self.active_count);
 
-        // If this is the last item in the active zone, just shrink the active zone
-        // (implicit free list).
+        // If this is the last item in the active zone, just shrink the active
+        // zone (implicit free list).
         if index == self.active_count - 1 {
             self.active_count -= 1;
             self.capacity -= 1;
         } else {
-            // This is very inefficient but we need to apply the same logic as the
-            // EffectCache because we rely on indices being in sync.
+            // This is very inefficient but we need to apply the same logic as
+            // the EffectCache because we rely on indices being in
+            // sync.
             let pos = self
                 .free_indices
                 .binary_search(&index) // will fail
@@ -582,8 +587,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         let index = first.0;
         assert!(index + count <= self.active_count);
 
-        // If this is the last item in the active zone, just shrink the active zone
-        // (implicit free list).
+        // If this is the last item in the active zone, just shrink the active
+        // zone (implicit free list).
         if index == self.active_count - count {
             self.active_count -= count;
             self.capacity -= count;
@@ -595,8 +600,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 self.active_count = 0;
                 self.capacity = 0;
             } else {
-                // Some rows are still allocated. Dequeue from end while we have a contiguous
-                // tail of free indices.
+                // Some rows are still allocated. Dequeue from end while we have
+                // a contiguous tail of free indices.
                 let mut num_popped = 0;
                 while let Some(idx) = self.free_indices.pop() {
                     if idx < self.active_count - 1 - num_popped {
@@ -609,8 +614,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 self.capacity -= num_popped;
             }
         } else {
-            // This is very inefficient but we need to apply the same logic as the
-            // EffectCache because we rely on indices being in sync.
+            // This is very inefficient but we need to apply the same logic as
+            // the EffectCache because we rely on indices being in
+            // sync.
             let pos = self
                 .free_indices
                 .binary_search(&index) // will fail
@@ -641,9 +647,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     ///
     /// [`insert()]`: crate::render::BufferTable::insert
     pub fn allocate_gpu(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
-        // The allocated capacity is the capacity of the currently allocated GPU buffer,
-        // which can be different from the expected capacity (self.capacity) for next
-        // update.
+        // The allocated capacity is the capacity of the currently allocated GPU
+        // buffer, which can be different from the expected capacity
+        // (self.capacity) for next update.
         let allocated_count = self.buffer.as_ref().map(|ab| ab.count).unwrap_or(0);
         let reallocated = if self.capacity > allocated_count {
             let byte_size = self.to_byte_size(self.capacity);
@@ -665,9 +671,10 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 mapped_at_creation: has_init_data,
             });
 
-            // Use any pending data to initialize the buffer. We only use CPU-available
-            // data, which was inserted after the buffer was (re-)allocated and
-            // has not been uploaded to GPU yet.
+            // Use any pending data to initialize the buffer. We only use
+            // CPU-available data, which was inserted after the
+            // buffer was (re-)allocated and has not been uploaded
+            // to GPU yet.
             if has_init_data {
                 // Leave some space to copy the old buffer if any
                 let base_size = self.to_byte_size(allocated_count) as u64;
@@ -676,7 +683,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
 
                 // Scope get_mapped_range_mut() to force a drop before unmap()
                 {
-                    // Note: get_mapped_range_mut() requires 8-byte alignment of the start offset.
+                    // Note: get_mapped_range_mut() requires 8-byte alignment of
+                    // the start offset.
                     let unaligned_range = base_size..(base_size + extra_size);
                     let (range, byte_offset) = round_range_start_down(unaligned_range, 8);
 
@@ -690,7 +698,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     for (index, content) in self.extra_pending_values.drain(..).enumerate() {
                         let byte_offset = base_offset + byte_size * index;
 
-                        // Copy Rust value into a GPU-ready format, including GPU padding.
+                        // Copy Rust value into a GPU-ready format, including
+                        // GPU padding.
                         let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                         let dst_range = byte_offset..(byte_offset + self.item_size);
                         trace!(
@@ -709,18 +718,21 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             }
 
             if let Some(ab) = self.buffer.as_mut() {
-                // If there's any data currently in the GPU buffer, we need to copy it on next
-                // update to preserve it.
+                // If there's any data currently in the GPU buffer, we need to
+                // copy it on next update to preserve it.
                 if self.active_count > 0 {
-                    // Current buffer has value to preserve, save it into old_buffer before
-                    // replacing it with the newly-allocated one.
+                    // Current buffer has value to preserve, save it into
+                    // old_buffer before replacing it with
+                    // the newly-allocated one.
 
-                    // By design we can't have all active entries as free ones; we should have
-                    // updated active_count=0 and cleared the free list if that was the case.
+                    // By design we can't have all active entries as free ones;
+                    // we should have updated active_count=0
+                    // and cleared the free list if that was the case.
                     debug_assert!(self.free_indices.len() < self.active_count as usize);
 
-                    // If we already have an old buffer, that means we already have scheduled a copy
-                    // to preserve some values. And we can't do that twice per frame.
+                    // If we already have an old buffer, that means we already
+                    // have scheduled a copy to preserve
+                    // some values. And we can't do that twice per frame.
                     assert!(
                         ab.old_buffer.is_none(),
                         "allocate_gpu() called twice before write_buffer() took effect."
@@ -732,10 +744,13 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     ab.old_buffer = Some(old_buffer);
                     ab.old_count = ab.count;
                 } else {
-                    // Current buffer is unused, so we don't need to preserve anything.
+                    // Current buffer is unused, so we don't need to preserve
+                    // anything.
 
-                    // It could happen we reallocate during the frame then immediately free the rows
-                    // to preserve, such that we don't need in the end to preserve anything.
+                    // It could happen we reallocate during the frame then
+                    // immediately free the rows
+                    // to preserve, such that we don't need in the end to
+                    // preserve anything.
                     if let Some(old_buffer) = ab.old_buffer.take() {
                         old_buffer.destroy();
                     }
@@ -759,19 +774,19 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         };
 
         // Immediately schedule a copy of old rows.
-        // - For old rows, copy into the old buffer because the old-to-new buffer copy
-        //   will be executed during a command queue while any CPU to GPU upload is
-        //   prepended before the next command queue. To ensure things do get out of
-        //   order with the CPU upload overwriting the GPU-to-GPU copy, make sure those
-        //   two are disjoint.
+        // - For old rows, copy into the old buffer because the old-to-new
+        //   buffer copy will be executed during a command queue while any CPU
+        //   to GPU upload is prepended before the next command queue. To ensure
+        //   things do get out of order with the CPU upload overwriting the
+        //   GPU-to-GPU copy, make sure those two are disjoint.
         if let Some(ab) = self.buffer.as_ref() {
             let buffer = ab.old_buffer.as_ref().unwrap_or(&ab.buffer);
             for (index, content) in self.pending_values.drain(..) {
                 let byte_size = self.aligned_size;
                 let byte_offset = byte_size * index as usize;
 
-                // Copy Rust value into a GPU-ready format, including GPU padding.
-                // TODO - Do that in insert()!
+                // Copy Rust value into a GPU-ready format, including GPU
+                // padding. TODO - Do that in insert()!
                 let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
                 let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                 let dst_range = ..self.item_size;
@@ -801,8 +816,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
 
     /// Write CPU data to the GPU buffer, (re)allocating it as needed.
     pub fn write_buffer(&self, encoder: &mut CommandEncoder) {
-        // Check if there's any work to do: either some pending values to upload or some
-        // existing buffer to copy into a newly-allocated one.
+        // Check if there's any work to do: either some pending values to upload
+        // or some existing buffer to copy into a newly-allocated one.
         if self.pending_values.is_empty()
             && self
                 .buffer
@@ -828,10 +843,11 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             return;
         };
 
-        // Copy any old buffer into the new one, and clear the old buffer. Note that we
-        // only clear the ref-counted reference to the buffer, not the actual buffer,
-        // which stays alive until the copy is done (but we don't need to care about
-        // keeping it alive, wgpu does that for us).
+        // Copy any old buffer into the new one, and clear the old buffer. Note
+        // that we only clear the ref-counted reference to the buffer,
+        // not the actual buffer, which stays alive until the copy is
+        // done (but we don't need to care about keeping it alive, wgpu
+        // does that for us).
         if let Some(old_buffer) = ab.old_buffer.as_ref() {
             let old_size = self.to_byte_size(ab.old_count) as u64;
             trace!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), old_size, ab.buffer.id(), self.to_byte_size(ab.count));
@@ -911,7 +927,9 @@ mod tests {
         assert_eq!(std::mem::align_of::<GpuDummyLarge>(), 4);
 
         // GPU
-        assert_eq!(<GpuDummy as ShaderType>::min_size().get(), 16); // Vec3 gets padded to 16 bytes
+        assert_eq!(<GpuDummy as ShaderType>::min_size().get(), 16); // Vec3 gets
+                                                                    // padded to
+                                                                    // 16 bytes
         assert_eq!(<GpuDummy as ShaderSize>::SHADER_SIZE.get(), 16);
         assert_eq!(<GpuDummyComposed as ShaderType>::min_size().get(), 32); // align is 16 bytes, forces padding
         assert_eq!(<GpuDummyComposed as ShaderSize>::SHADER_SIZE.get(), 32);
@@ -1128,9 +1146,10 @@ mod gpu_tests {
             timeout: None,
         });
 
-        // Wait for callback to be raised. This was need in previous versions, however
-        // it's a bit unclear if it's still needed or if device.poll() is enough to
-        // guarantee that the command was executed.
+        // Wait for callback to be raised. This was need in previous versions,
+        // however it's a bit unclear if it's still needed or if
+        // device.poll() is enough to guarantee that the command was
+        // executed.
         let _ = futures::executor::block_on(rx);
     }
 
@@ -1465,7 +1484,8 @@ mod gpu_tests {
             table.capacity()
         );
 
-        // This doesn't reallocate the GPU buffer since we used a free list entry
+        // This doesn't reallocate the GPU buffer since we used a free list
+        // entry
         table.allocate_gpu(&device, &queue);
         assert!(!table.is_empty());
         assert_eq!(table.len(), len);
@@ -1509,7 +1529,8 @@ mod gpu_tests {
         // New frame
         table.clear_previous_frame_resizes();
 
-        // Insert a row; this should get into row #3 at the end of the allocated buffer
+        // Insert a row; this should get into row #3 at the end of the allocated
+        // buffer
         let row = table.insert(GpuDummyComposed {
             tag: 4,
             ..Default::default()
@@ -1522,7 +1543,8 @@ mod gpu_tests {
             table.capacity()
         );
 
-        // This doesn't reallocate the GPU buffer since we used an implicit free entry
+        // This doesn't reallocate the GPU buffer since we used an implicit free
+        // entry
         table.allocate_gpu(&device, &queue);
         assert!(!table.is_empty());
         assert_eq!(table.len(), len);

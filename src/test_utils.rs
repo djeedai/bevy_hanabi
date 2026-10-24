@@ -152,8 +152,8 @@ impl MockRenderer {
         let flags = wgpu::InstanceFlags::empty();
 
         // Create the WGPU adapter. Use PRIMARY backends (Vulkan, Metal, DX12,
-        // Browser+WebGPU) to ensure we get a backend that supports compute and other
-        // modern features we might need.
+        // Browser+WebGPU) to ensure we get a backend that supports compute and
+        // other modern features we might need.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             flags,

@@ -131,7 +131,8 @@ impl EventBuffer {
 
     /// Free the slice of a consumer effect once that effect is deallocated.
     pub fn free(&mut self, slice: &EventSlice) -> SlabState {
-        // Note: could use binary search, but likely not enough elements to be worth it
+        // Note: could use binary search, but likely not enough elements to be
+        // worth it
         if let Some(idx) = self.slices.iter().position(|es| es == slice) {
             self.slices.remove(idx);
         }
@@ -269,8 +270,8 @@ pub(crate) fn allocate_events(
         }
     }
 
-    // Remove the component from effects which are not a child anymore. This should
-    // be pretty rare; in general the effect is just despawned.
+    // Remove the component from effects which are not a child anymore. This
+    // should be pretty rare; in general the effect is just despawned.
     for entity in &q_old_child_effects {
         commands.entity(entity).remove::<CachedEffectEvents>();
     }
@@ -423,7 +424,8 @@ impl EventCache {
         let mut empty_index = None;
         for (buffer_index, buffer) in self.buffers.iter_mut().enumerate() {
             let Some(buffer) = buffer.as_mut() else {
-                // Remember the first empty slot in case we need to allocate a new GPU buffer
+                // Remember the first empty slot in case we need to allocate a
+                // new GPU buffer
                 if empty_index.is_none() {
                     empty_index = Some(buffer_index);
                 }
@@ -592,9 +594,10 @@ impl EventCache {
         // FIXME
         _effect_bind_groups: &mut ResMut<EffectBindGroups>,
     ) {
-        // This buffer is only ever used in the bind groups of a `GpuBufferOperations`,
-        // which manages its bind groups automatically each frame. So there's no
-        // invalidation to do here on re-allocation.
+        // This buffer is only ever used in the bind groups of a
+        // `GpuBufferOperations`, which manages its bind groups
+        // automatically each frame. So there's no invalidation to do
+        // here on re-allocation.
         self.init_indirect_dispatch_buffer
             .prepare_buffers(render_device);
 

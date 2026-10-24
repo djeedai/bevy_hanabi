@@ -424,7 +424,8 @@ impl EffectProperties {
 
         // Only mutate if needed to avoid triggering change detection
         if !new_props.is_empty() {
-            // Append new instances (with their default value) for missing properties
+            // Append new instances (with their default value) for missing
+            // properties
             this.properties.append(&mut new_props);
         }
     }
@@ -460,9 +461,9 @@ struct PropertyLayoutEntry {
 
 impl PartialEq for PropertyLayoutEntry {
     fn eq(&self, other: &Self) -> bool {
-        // Compare property's name and type, and offset inside layout, but not default
-        // value since two properties cannot differ only by default value (the property
-        // name is unique).
+        // Compare property's name and type, and offset inside layout, but not
+        // default value since two properties cannot differ only by
+        // default value (the property name is unique).
         self.property.name() == other.property.name()
             && self.property.value_type() == other.property.value_type()
             && self.offset == other.offset
@@ -473,9 +474,9 @@ impl Eq for PropertyLayoutEntry {}
 
 impl std::hash::Hash for PropertyLayoutEntry {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash property's name and type, and offset inside layout, but not default
-        // value since two properties cannot differ only by default value (the property
-        // name is unique).
+        // Hash property's name and type, and offset inside layout, but not
+        // default value since two properties cannot differ only by
+        // default value (the property name is unique).
         self.property.name().hash(state);
         self.property.value_type().hash(state);
         self.offset.hash(state);
@@ -632,8 +633,9 @@ impl PropertyLayout {
             // Float1 is done, some Float3 left, and at most one Float2
             debug_assert_eq!(num1, 0);
 
-            // Note: WGSL doesn't support packing 3/3/2 in 32 bytes, because vec3<f32> needs
-            // to be aligned to 16 bytes always. So we just output all remaining types as is
+            // Note: WGSL doesn't support packing 3/3/2 in 32 bytes, because
+            // vec3<f32> needs to be aligned to 16 bytes always. So
+            // we just output all remaining types as is
             // proper align.
 
             for i in 0..num3 {
@@ -642,8 +644,9 @@ impl PropertyLayout {
                     property: prop.clone(),
                     offset,
                 };
-                // WARN: vec3<f32> is 16-byte aligned, not 12! And the last vec2<f32> if any
-                // will also benefit from this since it needs 8-byte alignment.
+                // WARN: vec3<f32> is 16-byte aligned, not 12! And the last
+                // vec2<f32> if any will also benefit from this
+                // since it needs 8-byte alignment.
                 offset += 16;
                 layout.push(entry);
             }

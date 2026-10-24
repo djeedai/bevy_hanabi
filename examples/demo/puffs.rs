@@ -1,0 +1,284 @@
+//! Puffs
+//!
+//! This example creates cartoony smoke puffs out of spherical meshes.
+
+use std::{borrow::Cow, f32::consts::FRAC_PI_2};
+
+use super::DemoCommands as Commands;
+use bevy::{
+    camera::Hdr,
+    color::palettes::css::FOREST_GREEN,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    math::vec3,
+    mesh::{SphereKind, SphereMeshBuilder},
+    prelude::*,
+};
+use bevy_hanabi::prelude::*;
+use serde::{Deserialize, Serialize};
+
+const DEMO_DESC: &str = include_str!("puffs.txt");
+const DEMO_SUMMARY: &str = "Render particles as 3D meshes.";
+const DEMO_TAGS: &[super::DemoTag] = &[super::DemoTag::Mesh];
+
+// A simple custom modifier that lights the meshes with Lambertian lighting.
+// Other lighting models are possible, up to and including PBR.
+#[derive(Clone, Copy, Reflect, Serialize, Deserialize)]
+struct LambertianLightingModifier {
+    // The direction that light is coming from, in particle system space.
+    light_direction: Vec3,
+    // The brightness of the ambient light (which is assumed to be white in
+    // this example).
+    ambient: f32,
+}
+
+// The position of the light in the scene.
+static LIGHT_POSITION: Vec3 = vec3(-20.0, 40.0, 5.0);
+
+declare_demo!("puffs");
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
+}
+
+fn install(app: &mut App, entity: Entity) {
+    app.register_type::<LambertianLightingModifier>();
+    bevy_hanabi::modifier::register_reflect_modifier::<LambertianLightingModifier>(
+        app.world().resource::<AppTypeRegistry>(),
+        |_| {
+            Box::new(LambertianLightingModifier::new(
+                LIGHT_POSITION.normalize_or_zero(),
+                0.7,
+            ))
+        },
+    );
+    app.init_resource::<GlobalAmbientLight>()
+        .add_systems(
+            OnEnter(super::DemoState::Running),
+            setup.run_if(super::demo_selected(entity)),
+        )
+        .add_systems(
+            Update,
+            setup_scene_once_loaded.run_if(super::demo_running(entity)),
+        );
+}
+
+// Performs initialization of the scene.
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut ambient_light: ResMut<GlobalAmbientLight>,
+) {
+    *ambient_light = GlobalAmbientLight {
+        color: Color::WHITE,
+        brightness: 500.0,
+        ..default()
+    };
+
+    // Spawn the camera.
+    commands.spawn((
+        Transform::from_xyz(25.0, 15.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Camera {
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+        Camera3d::default(),
+        Hdr,
+        Tonemapping::None,
+        DebandDither::Disabled,
+    ));
+
+    // Spawn the fox.
+    commands.spawn((
+        WorldAssetRoot(asset_server.load("Fox.glb#Scene0")),
+        Transform::from_scale(Vec3::splat(0.1)),
+    ));
+
+    // Spawn the circular base.
+    commands.spawn((
+        Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        Mesh3d(meshes.add(Circle::new(15.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: FOREST_GREEN.into(),
+            ..default()
+        })),
+    ));
+
+    // Spawn a light.
+    commands.spawn((
+        Transform::from_translation(LIGHT_POSITION).looking_at(Vec3::ZERO, Vec3::Y),
+        DirectionalLight {
+            color: Color::WHITE,
+            illuminance: 2000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+    ));
+
+    // Create the mesh.
+    let mesh = meshes.add(SphereMeshBuilder::new(0.5, SphereKind::Ico { subdivisions: 4 }).build());
+
+    // Create the effect asset.
+    let effect = super::demo_effect(&demos, "puffs", 0);
+
+    // Spawn the effect.
+    commands.spawn((
+        Name::new("cartoon explosion"),
+        ParticleEffect::new(effect),
+        EffectMesh(mesh),
+    ));
+}
+
+// Builds the smoke puffs.
+fn create_effect() -> EffectAsset {
+    let writer = ExprWriter::new();
+
+    // Position the particle laterally within a small radius.
+    let init_xz_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Z).expr(),
+        radius: writer.lit(1.0).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    // Position the particle vertically. Jiggle it a little bit for variety's
+    // sake.
+    let init_y_pos = SetAttributeModifier::new(
+        Attribute::POSITION,
+        writer
+            .attr(Attribute::POSITION)
+            .add(writer.rand(VectorType::VEC3F) * writer.lit(vec3(0.0, 1.0, 0.0)))
+            .expr(),
+    );
+
+    // Set up the age and lifetime.
+    let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(3.0).expr());
+
+    // Vary the size a bit.
+    let init_size = SetAttributeModifier::new(
+        Attribute::F32_0,
+        (writer.rand(ScalarType::Float) * writer.lit(2.0) + writer.lit(0.5)).expr(),
+    );
+
+    // Make the particles move backwards at a constant speed.
+    let init_velocity = SetAttributeModifier::new(
+        Attribute::VELOCITY,
+        writer.lit(vec3(0.0, 0.0, -20.0)).expr(),
+    );
+
+    // Make the particles shrink over time.
+    let update_size = SetAttributeModifier::new(
+        Attribute::SIZE,
+        writer
+            .attr(Attribute::F32_0)
+            .mul(
+                writer
+                    .lit(1.0)
+                    .sub((writer.attr(Attribute::AGE)).mul(writer.lit(0.75)))
+                    .max(writer.lit(0.0)),
+            )
+            .expr(),
+    );
+
+    // Add some nice shading to the particles.
+    let render_lambertian =
+        LambertianLightingModifier::new(LIGHT_POSITION.normalize_or_zero(), 0.7);
+
+    let module = writer.finish();
+
+    // Add the effect.
+    EffectAsset::new(
+        256,
+        SpawnerSettings::burst(16.0.into(), 0.45.into()),
+        module,
+    )
+    .with_name("cartoon explosion")
+    .init(init_xz_pos)
+    .init(init_y_pos)
+    .init(init_age)
+    .init(init_lifetime)
+    .init(init_size)
+    .init(init_velocity)
+    .update(update_size)
+    .render(render_lambertian)
+}
+
+// A system that plays the running animation once the fox loads.
+fn setup_scene_once_loaded(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut animation_graphs: ResMut<Assets<AnimationGraph>>,
+    mut players: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>,
+) {
+    for (entity, mut animation_player) in players.iter_mut() {
+        let (animation_graph, animation_graph_node) =
+            AnimationGraph::from_clip(asset_server.load("Fox.glb#Animation2"));
+        let animation_graph = AnimationGraphHandle(animation_graphs.add(animation_graph));
+        animation_player.play(animation_graph_node).repeat();
+        commands.entity(entity).insert(animation_graph.clone());
+    }
+}
+
+impl LambertianLightingModifier {
+    fn new(light_direction: Vec3, ambient: f32) -> LambertianLightingModifier {
+        LambertianLightingModifier {
+            light_direction,
+            ambient,
+        }
+    }
+}
+
+// Boilerplate implementation of `Modifier` for our lighting modifier.
+impl Modifier for LambertianLightingModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
+    fn as_render(&self) -> Option<&dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn as_render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[])
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, _: &mut Module, _: &mut ShaderWriter) -> Result<(), ExprError> {
+        Err(ExprError::TypeError("Wrong modifier context".to_string()))
+    }
+}
+
+// The implementation of Lambertian lighting.
+impl RenderModifier for LambertianLightingModifier {
+    fn apply_render(&self, _: &mut Module, context: &mut RenderContext) -> Result<(), ExprError> {
+        // We need the vertex normals to light the mesh.
+        context.set_needs_normal();
+
+        // Shade each fragment.
+        context.fragment_code += &format!(
+            "color = vec4(color.rgb * mix({}, 1.0, dot(normal, {})), color.a);",
+            self.ambient.to_wgsl_string(),
+            self.light_direction.to_wgsl_string()
+        );
+
+        Ok(())
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
+}

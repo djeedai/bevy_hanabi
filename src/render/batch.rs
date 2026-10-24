@@ -512,8 +512,9 @@ impl Batcher {
 
                 let base_particle = effect_data.slab_offset;
                 let render_batch_info_id = self.begin_batch(base_particle, spawner_index);
-                // Render-only batch infos are not processed by vfx_prefix_sum; keep
-                // a relative offset of 0 for the single effect in that batch.
+                // Render-only batch infos are not processed by vfx_prefix_sum;
+                // keep a relative offset of 0 for the single
+                // effect in that batch.
                 self.add_effect_to_batch(0);
                 self.end_batch();
                 let render_batch_info_offset = render_batch_info_id
@@ -889,7 +890,8 @@ mod tests {
         sorter.sort();
         assert_eq!(sorter.effects.len(), 3);
         assert_eq!(sorter.effects[0].entity, e2); // child first
-        assert_eq!(sorter.effects[1].entity, e3); // other child next (in same buffer as parent)
+        assert_eq!(sorter.effects[1].entity, e3); // other child next (in same
+                                                  // buffer as parent)
         assert_eq!(sorter.effects[2].entity, e1); // finally, parent
         assert_eq!(sorter.child_to_parent.len(), 2);
         assert_eq!(sorter.child_to_parent[&e2], e1);

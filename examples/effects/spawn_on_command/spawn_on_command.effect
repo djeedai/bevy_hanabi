@@ -1,0 +1,157 @@
+(
+  name: "spawn_on_command",
+  capacity: 32768,
+  spawner: (
+    count: Single(100.0),
+    spawn_duration: Single(0.0),
+    period: Single(0.0),
+    cycle_count: 1,
+    starts_active: true,
+    emit_on_start: false,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "position",
+        value: "#9",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "velocity",
+        value: "#25",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#1",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#2",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "color",
+        value: "#4",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::force::LinearDragModifier": (
+        drag: "#3",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::SetSizeModifier": (
+        size: Single((3.0, 3.0, 3.0)),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::ScreenSpaceSizeModifier": (),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(1.5))),
+      Literal(Scalar(Float(2.0))),
+      Property(1),
+      Property(2),
+      Literal(Scalar(Float(-0.05))),
+      Binary(
+        op: Mul,
+        left: "#5",
+        right: "#6",
+      ),
+      Literal(Vector(Vec3((0.0, 0.0, 0.2)))),
+      Binary(
+        op: Add,
+        left: "#7",
+        right: "#8",
+      ),
+      Literal(Vector(Vec3((0.0, 0.0, 1.0)))),
+      Binary(
+        op: Cross,
+        left: "#10",
+        right: "#5",
+      ),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(2.0))),
+      Binary(
+        op: Mul,
+        left: "#12",
+        right: "#13",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#14",
+        right: "#15",
+      ),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(0.2))),
+      Binary(
+        op: Mul,
+        left: "#17",
+        right: "#18",
+      ),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#16",
+      ),
+      Literal(Scalar(Float(5.0))),
+      Binary(
+        op: Mul,
+        left: "#20",
+        right: "#21",
+      ),
+      Binary(
+        op: Add,
+        left: "#5",
+        right: "#22",
+      ),
+      Unary(
+        op: Normalize,
+        expr: "#23",
+      ),
+      Binary(
+        op: Mul,
+        left: "#24",
+        right: "#19",
+      ),
+    ],
+    properties: [
+      (
+        name: "spawn_color",
+        default_value: Scalar(Uint(4294967295)),
+      ),
+      (
+        name: "normal",
+        default_value: Vector(Vec3((0.0, 0.0, 0.0))),
+      ),
+    ],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

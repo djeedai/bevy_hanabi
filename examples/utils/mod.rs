@@ -7,7 +7,7 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{settings::WgpuSettings, RenderDebugFlags, RenderPlugin},
-    text::{TextColor, TextFont},
+    text::{FontSource, TextColor, TextFont},
     ui::{
         widget::Text, BackgroundColor, BorderColor, BorderRadius, Display, Node, Overflow,
         PositionType, UiRect, Val, ZIndex,
@@ -17,11 +17,20 @@ use wgpu::BlendState;
 
 use crate::prelude::*;
 
-/// Helper system to enable closing the example application by pressing the
-/// escape key (ESC).
-pub fn close_on_esc(mut ev_app_exit: MessageWriter<AppExit>, input: Res<ButtonInput<KeyCode>>) {
-    if input.just_pressed(KeyCode::Escape) {
-        ev_app_exit.write(AppExit::Success);
+/// The render layer used by the demo browser's own UI.
+pub const UI_RENDER_LAYER: usize = 63;
+
+pub(crate) fn ui_font(size: f32) -> TextFont {
+    TextFont {
+        font: FontSource::list([FontSource::system_ui(), FontSource::default()]),
+        ..TextFont::from_font_size(size)
+    }
+}
+
+pub(crate) fn ui_camera_output_mode() -> CameraOutputMode {
+    CameraOutputMode::Write {
+        blend_state: Some(BlendState::ALPHA_BLENDING),
+        clear_color: ClearColorConfig::None,
     }
 }
 
@@ -45,6 +54,10 @@ pub enum DescPosition {
     #[default]
     LeftColumn,
     BottomRow,
+    RightColumn {
+        left: Val,
+        top: Val,
+    },
 }
 
 #[derive(Default)]
@@ -96,6 +109,7 @@ impl DemoApp {
                     .set(WindowPlugin {
                         primary_window: Some(Window {
                             title: format!("🎆 Hanabi — {}", self.name),
+                            fit_canvas_to_parent: true,
                             ..default()
                         }),
                         ..default()
@@ -106,9 +120,10 @@ impl DemoApp {
                 name: self.name,
                 desc: self.desc,
                 desc_position: self.desc_position,
+                show_ui: true,
             })
             .add_systems(Startup, spawn_demo_ui)
-            .add_systems(Update, close_on_esc);
+            .add_systems(Update, update_demo_ui);
 
         app
     }
@@ -119,6 +134,7 @@ pub struct Demo {
     pub name: String,
     pub desc: String,
     pub desc_position: DescPosition,
+    pub show_ui: bool,
 }
 
 /// Error struct wrapping an app error code.
@@ -166,15 +182,12 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
             Projection::Orthographic(OrthographicProjection::default_2d()),
             Camera {
                 order: 1000, // render UI above everything
-                clear_color: ClearColorConfig::None,
-                output_mode: CameraOutputMode::Write {
-                    blend_state: Some(BlendState::ALPHA_BLENDING),
-                    clear_color: ClearColorConfig::None,
-                },
+                clear_color: Color::NONE.into(),
+                output_mode: ui_camera_output_mode(),
                 ..default()
             },
             Name::new("UI camera"),
-            RenderLayers::layer(63),
+            RenderLayers::layer(UI_RENDER_LAYER),
         ))
         .id();
 
@@ -182,10 +195,15 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
     let (left, top, right, bottom, width) = match demo.desc_position {
         DescPosition::LeftColumn => (Val::Vw(5.), Val::Vw(5.), Val::Auto, Val::Auto, Val::Vw(30.)),
         DescPosition::BottomRow => (Val::Vw(5.), Val::Auto, Val::Vw(5.), Val::Vw(5.), Val::Auto),
+        DescPosition::RightColumn { left, top } => (left, top, Val::Auto, Val::Auto, Val::Vw(30.)),
     };
     commands.spawn((
         Node {
-            display: Display::Block,
+            display: if demo.show_ui {
+                Display::Block
+            } else {
+                Display::None
+            },
             position_type: PositionType::Absolute,
             overflow: Overflow::clip(),
             left,
@@ -198,9 +216,10 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
             border_radius: BorderRadius::all(Val::Px(8.)),
             ..default()
         },
-        BackgroundColor(Color::linear_rgba(0., 0., 0., 0.8)),
-        BorderColor::all(Color::linear_rgb(0.8, 0.8, 0.8)),
+        BackgroundColor(Color::srgba(0.12, 0.12, 0.13, 0.8)),
+        BorderColor::all(Color::srgba(0.2, 0.2, 0.21, 0.8)),
         ZIndex(3000),
+        DemoInfoRoot,
         children![
             (
                 Node {
@@ -210,7 +229,8 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
                 },
                 Text::new(demo.name.clone()),
                 TextColor(Color::linear_rgb(1., 1., 1.)),
-                TextFont::from_font_size(18.),
+                ui_font(18.),
+                DemoTitle,
             ),
             (
                 Node {
@@ -220,9 +240,43 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
                 },
                 Text::new(demo.desc.clone()),
                 TextColor(Color::linear_rgb(0.8, 0.8, 0.8)),
-                TextFont::from_font_size(12.),
+                ui_font(12.),
+                DemoDescription,
             )
         ],
         UiTargetCamera(ui_camera),
     ));
+}
+
+#[derive(Component)]
+pub(crate) struct DemoTitle;
+
+#[derive(Component)]
+pub(crate) struct DemoDescription;
+
+#[derive(Component)]
+pub(crate) struct DemoInfoRoot;
+
+pub(crate) fn update_demo_ui(
+    demo: Res<Demo>,
+    mut root: Query<&mut Node, With<DemoInfoRoot>>,
+    mut title: Query<&mut Text, (With<DemoTitle>, Without<DemoDescription>)>,
+    mut description: Query<&mut Text, (With<DemoDescription>, Without<DemoTitle>)>,
+) {
+    if !demo.is_changed() {
+        return;
+    }
+    if let Ok(mut title) = title.single_mut() {
+        title.0.clone_from(&demo.name);
+    }
+    if let Ok(mut description) = description.single_mut() {
+        description.0.clone_from(&demo.desc);
+    }
+    if let Ok(mut root) = root.single_mut() {
+        root.display = if demo.show_ui {
+            Display::Block
+        } else {
+            Display::None
+        };
+    }
 }

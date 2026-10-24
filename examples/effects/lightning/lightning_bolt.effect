@@ -1,0 +1,695 @@
+(
+  name: "lightning_bolt",
+  capacity: 1024,
+  spawner: (
+    count: Single(40.0),
+    spawn_duration: Single(0.0),
+    period: Single(0.0),
+    cycle_count: 1,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "position",
+        value: "#162",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#165",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#169",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "ribbon_id",
+        value: "#168",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "size",
+        value: "#173",
+      ),
+    },
+  ],
+  update_modifiers: [],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (20.0, 22.0, 30.0, 1.0),
+            ),
+            (
+              ratio: 0.2,
+              value: (12.0, 16.0, 28.0, 1.0),
+            ),
+            (
+              ratio: 0.6,
+              value: (6.0, 10.0, 22.0, 0.8),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 10.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+  ],
+  motion_integration: r#None,
+  module: (
+    expressions: [
+      Property(1),
+      Literal(Scalar(Float(100.0))),
+      Binary(
+        op: Add,
+        left: "#1",
+        right: "#2",
+      ),
+      Literal(Scalar(Float(1000.0))),
+      Binary(
+        op: Mul,
+        left: "#3",
+        right: "#4",
+      ),
+      Cast((
+        inner: "#5",
+        target: Scalar(Uint),
+      )),
+      Attribute((
+        attr: "particle_counter",
+      )),
+      Literal(Scalar(Uint(40))),
+      Binary(
+        op: Remainder,
+        left: "#7",
+        right: "#8",
+      ),
+      Literal(Scalar(Uint(4))),
+      Binary(
+        op: Div,
+        left: "#9",
+        right: "#10",
+      ),
+      Literal(Scalar(Uint(1))),
+      Binary(
+        op: Max,
+        left: "#11",
+        right: "#12",
+      ),
+      Literal(Scalar(Uint(1))),
+      Binary(
+        op: Sub,
+        left: "#13",
+        right: "#14",
+      ),
+      Literal(Scalar(Uint(1))),
+      Binary(
+        op: Add,
+        left: "#11",
+        right: "#16",
+      ),
+      Literal(Scalar(Uint(12345))),
+      Binary(
+        op: Mul,
+        left: "#15",
+        right: "#18",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#20",
+      ),
+      Binary(
+        op: Add,
+        left: "#19",
+        right: "#21",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#22",
+        right: "#23",
+      ),
+      Literal(Scalar(Uint(3))),
+      Binary(
+        op: Remainder,
+        left: "#24",
+        right: "#25",
+      ),
+      Literal(Scalar(Uint(54321))),
+      Binary(
+        op: Mul,
+        left: "#15",
+        right: "#27",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#29",
+      ),
+      Binary(
+        op: Add,
+        left: "#28",
+        right: "#30",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#31",
+        right: "#32",
+      ),
+      Cast((
+        inner: "#33",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(5055.5))),
+      Binary(
+        op: Div,
+        left: "#34",
+        right: "#35",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#36",
+        right: "#37",
+      ),
+      Literal(Scalar(Uint(98765))),
+      Binary(
+        op: Mul,
+        left: "#15",
+        right: "#39",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#41",
+      ),
+      Binary(
+        op: Add,
+        left: "#40",
+        right: "#42",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#43",
+        right: "#44",
+      ),
+      Cast((
+        inner: "#45",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(5055.5))),
+      Binary(
+        op: Div,
+        left: "#46",
+        right: "#47",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#48",
+        right: "#49",
+      ),
+      Literal(Scalar(Uint(12345))),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#51",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#53",
+      ),
+      Binary(
+        op: Add,
+        left: "#52",
+        right: "#54",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#55",
+        right: "#56",
+      ),
+      Literal(Scalar(Uint(3))),
+      Binary(
+        op: Remainder,
+        left: "#57",
+        right: "#58",
+      ),
+      Literal(Scalar(Uint(54321))),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#60",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#62",
+      ),
+      Binary(
+        op: Add,
+        left: "#61",
+        right: "#63",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#64",
+        right: "#65",
+      ),
+      Cast((
+        inner: "#66",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(5055.5))),
+      Binary(
+        op: Div,
+        left: "#67",
+        right: "#68",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#69",
+        right: "#70",
+      ),
+      Literal(Scalar(Uint(98765))),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#72",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#74",
+      ),
+      Binary(
+        op: Add,
+        left: "#73",
+        right: "#75",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#76",
+        right: "#77",
+      ),
+      Cast((
+        inner: "#78",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(5055.5))),
+      Binary(
+        op: Div,
+        left: "#79",
+        right: "#80",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#81",
+        right: "#82",
+      ),
+      Literal(Scalar(Uint(12345))),
+      Binary(
+        op: Mul,
+        left: "#17",
+        right: "#84",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#86",
+      ),
+      Binary(
+        op: Add,
+        left: "#85",
+        right: "#87",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#88",
+        right: "#89",
+      ),
+      Literal(Scalar(Uint(3))),
+      Binary(
+        op: Remainder,
+        left: "#90",
+        right: "#91",
+      ),
+      Literal(Scalar(Uint(54321))),
+      Binary(
+        op: Mul,
+        left: "#17",
+        right: "#93",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#95",
+      ),
+      Binary(
+        op: Add,
+        left: "#94",
+        right: "#96",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#97",
+        right: "#98",
+      ),
+      Cast((
+        inner: "#99",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(5055.5))),
+      Binary(
+        op: Div,
+        left: "#100",
+        right: "#101",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#102",
+        right: "#103",
+      ),
+      Literal(Scalar(Uint(98765))),
+      Binary(
+        op: Mul,
+        left: "#17",
+        right: "#105",
+      ),
+      Literal(Scalar(Uint(67891))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#107",
+      ),
+      Binary(
+        op: Add,
+        left: "#106",
+        right: "#108",
+      ),
+      Literal(Scalar(Uint(10111))),
+      Binary(
+        op: Remainder,
+        left: "#109",
+        right: "#110",
+      ),
+      Cast((
+        inner: "#111",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(5055.5))),
+      Binary(
+        op: Div,
+        left: "#112",
+        right: "#113",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#114",
+        right: "#115",
+      ),
+      Binary(
+        op: Mul,
+        left: "#15",
+        right: "#10",
+      ),
+      Binary(
+        op: Add,
+        left: "#117",
+        right: "#26",
+      ),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#10",
+      ),
+      Binary(
+        op: Add,
+        left: "#119",
+        right: "#59",
+      ),
+      Binary(
+        op: Mul,
+        left: "#17",
+        right: "#10",
+      ),
+      Binary(
+        op: Add,
+        left: "#121",
+        right: "#92",
+      ),
+      Cast((
+        inner: "#120",
+        target: Scalar(Float),
+      )),
+      Cast((
+        inner: "#9",
+        target: Scalar(Float),
+      )),
+      Binary(
+        op: Step,
+        left: "#124",
+        right: "#123",
+      ),
+      Cast((
+        inner: "#118",
+        target: Scalar(Float),
+      )),
+      Cast((
+        inner: "#120",
+        target: Scalar(Float),
+      )),
+      Ternary(
+        op: Mix,
+        first: "#126",
+        second: "#127",
+        third: "#125",
+      ),
+      Cast((
+        inner: "#120",
+        target: Scalar(Float),
+      )),
+      Cast((
+        inner: "#122",
+        target: Scalar(Float),
+      )),
+      Ternary(
+        op: Mix,
+        first: "#129",
+        second: "#130",
+        third: "#125",
+      ),
+      Ternary(
+        op: Mix,
+        first: "#38",
+        second: "#71",
+        third: "#125",
+      ),
+      Ternary(
+        op: Mix,
+        first: "#71",
+        second: "#104",
+        third: "#125",
+      ),
+      Ternary(
+        op: Mix,
+        first: "#50",
+        second: "#83",
+        third: "#125",
+      ),
+      Ternary(
+        op: Mix,
+        first: "#83",
+        second: "#116",
+        third: "#125",
+      ),
+      Binary(
+        op: Sub,
+        left: "#131",
+        right: "#128",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Max,
+        left: "#136",
+        right: "#137",
+      ),
+      Cast((
+        inner: "#9",
+        target: Scalar(Float),
+      )),
+      Binary(
+        op: Sub,
+        left: "#139",
+        right: "#128",
+      ),
+      Binary(
+        op: Div,
+        left: "#140",
+        right: "#138",
+      ),
+      Ternary(
+        op: Mix,
+        first: "#132",
+        second: "#133",
+        third: "#141",
+      ),
+      Literal(Scalar(Float(1.5))),
+      Binary(
+        op: Mul,
+        left: "#142",
+        right: "#143",
+      ),
+      Ternary(
+        op: Mix,
+        first: "#134",
+        second: "#135",
+        third: "#141",
+      ),
+      Literal(Scalar(Float(0.75))),
+      Binary(
+        op: Mul,
+        left: "#145",
+        right: "#146",
+      ),
+      Cast((
+        inner: "#9",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(39.0))),
+      Binary(
+        op: Div,
+        left: "#148",
+        right: "#149",
+      ),
+      Literal(Scalar(Float(15.0))),
+      Literal(Scalar(Float(30.0))),
+      Binary(
+        op: Mul,
+        left: "#150",
+        right: "#152",
+      ),
+      Binary(
+        op: Sub,
+        left: "#151",
+        right: "#153",
+      ),
+      Literal(Scalar(Float(4.0))),
+      Binary(
+        op: Mul,
+        left: "#155",
+        right: "#150",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Sub,
+        left: "#157",
+        right: "#150",
+      ),
+      Binary(
+        op: Mul,
+        left: "#156",
+        right: "#158",
+      ),
+      Binary(
+        op: Mul,
+        left: "#144",
+        right: "#159",
+      ),
+      Binary(
+        op: Mul,
+        left: "#147",
+        right: "#159",
+      ),
+      Ternary(
+        op: Vec3,
+        first: "#160",
+        second: "#154",
+        third: "#161",
+      ),
+      Cast((
+        inner: "#9",
+        target: Scalar(Float),
+      )),
+      Literal(Scalar(Float(0.0001))),
+      Binary(
+        op: Mul,
+        left: "#163",
+        right: "#164",
+      ),
+      Attribute((
+        attr: "particle_counter",
+      )),
+      Literal(Scalar(Uint(40))),
+      Binary(
+        op: Div,
+        left: "#166",
+        right: "#167",
+      ),
+      Literal(Scalar(Float(0.3))),
+      Literal(Scalar(Float(0.08))),
+      Literal(Scalar(Float(0.1))),
+      Binary(
+        op: Add,
+        left: "#159",
+        right: "#171",
+      ),
+      Binary(
+        op: Mul,
+        left: "#170",
+        right: "#172",
+      ),
+    ],
+    properties: [
+      (
+        name: "wave_seed",
+        default_value: Scalar(Float(0.0)),
+      ),
+    ],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)
