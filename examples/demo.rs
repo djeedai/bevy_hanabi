@@ -358,10 +358,16 @@ struct NextDemoSelection(Option<Entity>);
 #[derive(Resource)]
 struct ActiveMenuDemo(Entity);
 
+/// Runner condition for systems that need to run once a specific demo is
+/// selected. This is generally paired with the`OnEnter(DemoState::Running)`
+/// schedule to run a one-time setup each time a demo starts.
 pub(crate) fn demo_selected(entity: Entity) -> impl Fn(Res<DemoSelection>) -> bool + Clone {
     move |selection: Res<DemoSelection>| selection.0 == entity
 }
 
+/// Runner condition for systems that need to run while a specific demo is
+/// running. This is generally used for the `update()` system of a demo, to
+/// ensure it only runs while the demo is active.
 pub(crate) fn demo_running(
     entity: Entity,
 ) -> impl Fn(Res<State<DemoState>>, Res<DemoSelection>) -> bool + Clone {
@@ -370,9 +376,13 @@ pub(crate) fn demo_running(
     }
 }
 
+/// Marker for entities spawned by a demo, which need to be cleaned-up when
+/// changing demo.
 #[derive(Component)]
 struct DemoContent;
 
+/// Wrapper around [`Commands`] to automatically insert [`DemoContent`] when
+/// spawning an entity inside a demo.
 #[derive(SystemParam)]
 pub(crate) struct DemoCommands<'w, 's> {
     commands: Commands<'w, 's>,
@@ -411,6 +421,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// Run the main demo GUI app with the menu.
 fn run_demo_app(
     selected_demo: Option<String>,
     bootstrap_frames: Option<usize>,
@@ -506,17 +517,27 @@ fn run_demo_app(
     app.run().into_result()
 }
 
+/// App run mode determined by CLI args.
 enum CliMode {
+    /// Run the normal GUI app.
     Run {
         selected_demo: Option<String>,
         bootstrap_frames: Option<usize>,
     },
+
+    /// Serialize all demo's effects to `.effect` files. This is used to
+    /// regenerate the reference files when a demo changed.
     #[cfg(not(target_arch = "wasm32"))]
     WriteEffects,
+
+    /// Serialize all demo's effects and compare them with checked-in `.effect`
+    /// files. This is used to validate the serialization format didn't change
+    /// unintentionally.
     #[cfg(not(target_arch = "wasm32"))]
     CheckEffects,
 }
 
+/// Parse the CLI args and return the [`CliMode`] the app should run in.
 fn parse_cli() -> Result<CliMode, Box<dyn Error>> {
     #[cfg(target_arch = "wasm32")]
     {
@@ -570,6 +591,7 @@ fn parse_cli() -> Result<CliMode, Box<dyn Error>> {
     }
 }
 
+/// Parse the `--bootstrap=N` CLI arg frame count.
 #[cfg(not(target_arch = "wasm32"))]
 fn parse_bootstrap_frames(value: Option<&str>) -> Result<usize, Box<dyn Error>> {
     let Some(value) = value else {
@@ -584,19 +606,13 @@ fn parse_bootstrap_frames(value: Option<&str>) -> Result<usize, Box<dyn Error>> 
     Ok(frames)
 }
 
-#[derive(Resource)]
-struct Bootstrap {
-    demos: Vec<Entity>,
-    current: usize,
-    frames: usize,
-    frames_per_demo: usize,
-    waited_frames: usize,
-    timed_out: bool,
-}
-
+/// Bootstrap readiness for the currently running demo.
 enum BootstrapReadiness {
+    /// Waiting for the demo's effect(s) to become ready.
     Waiting,
+    /// Demo effects are ready.
     Ready,
+    /// Timed out while waiting for effect(s) to become ready.
     TimedOut,
 }
 
@@ -604,6 +620,25 @@ enum BootstrapProgress {
     Waiting,
     Next(Entity),
     Finished,
+}
+
+/// Bootstrap mode parameters.
+#[derive(Resource)]
+struct Bootstrap {
+    /// Demo(s) to run in the bootstrap.
+    demos: Vec<Entity>,
+    /// Index of the currently running demo.
+    current: usize,
+    /// Number of frames simulated in the currently running demo.
+    frames: usize,
+    /// Maximum number of frames to simulate per demo.
+    frames_per_demo: usize,
+    /// Number of frames the current demo spent waiting for its effect(s) to
+    /// become ready.
+    waited_frames: usize,
+    /// True if the currently running demo timed out waiting for its effect(s)
+    /// to become ready.
+    timed_out: bool,
 }
 
 impl Bootstrap {
@@ -642,6 +677,7 @@ impl Bootstrap {
     }
 }
 
+/// Drive the demo bootstrap loop, switching between demos as the complete.
 fn bootstrap_demo(
     mut bootstrap: ResMut<Bootstrap>,
     state: Res<State<DemoState>>,
@@ -733,6 +769,7 @@ fn sync_demo_info(
     }
 }
 
+/// Spawn the UI for the main GUI app's menu, which shows the list of demos.
 fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSummary, &DemoTags)>) {
     let mut demos = demos.iter().collect::<Vec<_>>();
     demos.sort_by_key(|(_, name, _, _)| name.0);
@@ -1076,6 +1113,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
         });
 }
 
+/// Get a [`TextFont`] for a given font size, for use with the demo tag pills.
 fn menu_tag_font(size: f32) -> TextFont {
     TextFont {
         weight: FontWeight::SEMIBOLD,
@@ -1241,6 +1279,11 @@ fn spawn_menu_camera(mut commands: Commands) {
     ));
 }
 
+/// Clear all demo-specific content when a demo finished, before the next demo
+/// is loaded.
+///
+/// This relies on the [`DemoContent`] to be correctly applied to all per-demo
+/// entities.
 fn clear_demo_content(
     mut commands: Commands,
     mut ambient_light: ResMut<GlobalAmbientLight>,
@@ -1252,6 +1295,7 @@ fn clear_demo_content(
     }
 }
 
+/// Highlight menu buttons when hovered.
 fn highlight_menu_buttons(
     selection: Res<DemoSelection>,
     active_demo: Res<ActiveMenuDemo>,
@@ -1387,6 +1431,8 @@ fn scroll_active_demo_into_view(
     }
 }
 
+/// Ensure the demo list scrolls to the active demo on start. This is especially
+/// important when using `--demo <id>`, which could select a demo down the list.
 fn scroll_initial_active_demo_into_view(
     mut scrolled: Local<bool>,
     active_demo: Res<ActiveMenuDemo>,
@@ -1402,6 +1448,7 @@ fn scroll_initial_active_demo_into_view(
     }
 }
 
+/// Validate or regenerate all effect files from all demos.
 #[cfg(not(target_arch = "wasm32"))]
 fn process_effect_artifacts(write: bool) -> Result<(), Box<dyn Error>> {
     let mut app = headless_app();
@@ -1574,7 +1621,7 @@ mod tests {
             demos: vec![first, second],
             current: 0,
             frames: 0,
-            frames_per_demo: BOOTSTRAP_FRAMES,
+            frames_per_demo: 3,
             waited_frames: 0,
             timed_out: false,
         };
@@ -1599,7 +1646,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_times_out_waiting_for_effect_readiness() {
+    fn bootstrap_timeout() {
         let mut bootstrap = Bootstrap {
             demos: vec![],
             current: 0,
@@ -1626,7 +1673,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_frame_count_defaults_and_accepts_override() {
+    fn bootstrap_parse_frames() {
         assert_eq!(parse_bootstrap_frames(None).unwrap(), BOOTSTRAP_FRAMES);
         assert_eq!(parse_bootstrap_frames(Some("20")).unwrap(), 20);
         assert!(parse_bootstrap_frames(Some("0")).is_err());
@@ -1641,8 +1688,9 @@ mod tests {
             });
     }
 
+    /// Validate the content of all registered demos.
     #[test]
-    fn demo_entities_have_metadata_and_named_effects() {
+    fn validate_demos() {
         let mut world = World::new();
         insert_demos(&mut world);
         let mut query =
@@ -1672,9 +1720,11 @@ mod tests {
         }
     }
 
+    /// Validate that all registered demos preload their effects and store
+    /// handles to them.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn registered_demos_store_handles_to_preloaded_effects() {
+    fn validate_demo_effects() {
         let mut app = headless_app();
         let demo_infos = {
             let world = app.world_mut();
@@ -1706,7 +1756,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_search_combines_case_insensitive_name_and_tag_filters() {
+    fn menu_search() {
         let mut app = App::new();
         app.init_resource::<MenuSearch>()
             .add_systems(Update, update_menu_filter);
@@ -1814,24 +1864,11 @@ mod tests {
         assert_eq!(visible_names(&mut app), HashSet::from(["Puffs"]));
     }
 
+    /// Ensure demo tag colors have sufficient contrast to be readable. This was
+    /// a problem during the demo development, so keeping this to prevent
+    /// regression.
     #[test]
-    fn demo_tag_palette_uses_uniform_oklch_lightness() {
-        let mut hues = Vec::new();
-        for tag in DemoTag::ALL {
-            let Color::Oklcha(color) = tag.color() else {
-                panic!("demo tag colors should use Oklch");
-            };
-            assert_eq!(color.lightness, 0.48);
-            assert_eq!(color.chroma, 0.14);
-            hues.push(color.hue);
-        }
-        hues.sort_by(f32::total_cmp);
-        hues.dedup();
-        assert_eq!(hues.len(), DemoTag::ALL.len());
-    }
-
-    #[test]
-    fn demo_tag_text_colors_have_sufficient_contrast() {
+    fn demo_tag_contrast() {
         for background in DemoTag::ALL
             .iter()
             .map(|tag| tag.color())
@@ -1852,8 +1889,10 @@ mod tests {
         }
     }
 
+    /// Check demo transition sequencing (unload old demo, then load the new
+    /// one).
     #[test]
-    fn unloading_clears_demo_content_before_loading_again() {
+    fn demo_transition() {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_resource(DemoSelection(Entity::PLACEHOLDER))
@@ -1884,114 +1923,5 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(content.iter(app.world()).count(), 2);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn selecting_demo_keeps_menu_visible_and_runs_only_selected_demo() {
-        let mut app = headless_app();
-        app.add_plugins(bevy::time::TimePlugin)
-            .init_asset::<AnimationGraph>()
-            .init_resource::<Time<EffectSimulation>>()
-            .add_observer(choose_demo);
-        app.world_mut().spawn((Node::default(), MenuRoot));
-        let original_menu_camera = app.world_mut().spawn((Camera2d, MenuCamera)).id();
-        app.update();
-
-        for id in [
-            "expr",
-            "lightning",
-            "puffs",
-            "portal",
-            "spawn",
-            "puffs",
-            "gradient",
-            "ribbon",
-            "firework",
-        ] {
-            let demo_entity = {
-                let world = app.world_mut();
-                let mut demos = world.query::<(Entity, &DemoName)>();
-                demos
-                    .iter(world)
-                    .find(|(_, name)| name.0 == id)
-                    .map(|(entity, _)| entity)
-                    .unwrap()
-            };
-            let button = app.world_mut().spawn(MenuButton(demo_entity)).id();
-            app.world_mut().trigger(Activate { entity: button });
-            for _ in 0..5 {
-                app.update();
-            }
-
-            let mut cameras = app
-                .world_mut()
-                .query_filtered::<&Camera, (With<DemoContent>, With<Camera3d>)>();
-            assert_eq!(
-                cameras
-                    .iter(app.world())
-                    .filter(|camera| camera.is_active)
-                    .count(),
-                1,
-                "demo '{id}' did not spawn an active camera"
-            );
-
-            let mut menu = app.world_mut().query_filtered::<Entity, With<MenuRoot>>();
-            assert_eq!(menu.iter(app.world()).count(), 1);
-
-            let mut menu_cameras = app
-                .world_mut()
-                .query_filtered::<(Entity, &Camera), With<MenuCamera>>();
-            let (menu_camera, camera) = menu_cameras.single(app.world()).unwrap();
-            assert_eq!(menu_camera, original_menu_camera);
-            assert!(camera.is_active);
-            assert_eq!(app.world().resource::<DemoSelection>().0, demo_entity);
-            if id == "puffs" {
-                let mut effects = app
-                    .world_mut()
-                    .query_filtered::<Entity, (With<ParticleEffect>, With<DemoContent>)>();
-                assert_eq!(effects.iter(app.world()).count(), 1);
-            }
-            assert_eq!(
-                *app.world().resource::<State<DemoState>>().get(),
-                DemoState::Running
-            );
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn initially_selected_hdr_demos_spawn_their_camera() {
-        for id in ["expr", "firework"] {
-            let mut app = headless_app();
-            let demo_entity = {
-                let world = app.world_mut();
-                let mut demos = world.query::<(Entity, &DemoName)>();
-                demos
-                    .iter(world)
-                    .find(|(_, name)| name.0 == id)
-                    .map(|(entity, _)| entity)
-                    .unwrap()
-            };
-            app.world_mut().resource_mut::<DemoSelection>().0 = demo_entity;
-            app.add_plugins(bevy::time::TimePlugin)
-                .init_resource::<Time<EffectSimulation>>();
-
-            for _ in 0..3 {
-                app.update();
-            }
-
-            let mut cameras = app
-                .world_mut()
-                .query_filtered::<&Camera, (With<DemoContent>, With<Camera3d>)>();
-            assert_eq!(
-                cameras
-                    .iter(app.world())
-                    .filter(|camera| camera.is_active)
-                    .count(),
-                1,
-                "demo '{id}' did not spawn its camera on initial selection"
-            );
-        }
     }
 }

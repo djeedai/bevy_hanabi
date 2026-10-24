@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+_This version is compatible with Bevy 0.20_
+
 ### Added
 
 - Added `SetPositionBoxModifier` to set the particle position randomly inside or
@@ -45,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TextureSamplerExpr` now correctly returns an error if used from any pass but the Render one,
   instead of generating invalid WGSL code. This is a restriction of the WGSL language itself
   (sampled texture read, via `textureSample()`, can only be used in the fragment shader).
+- All examples are now merged into a single `demo.rs` executable. Run with `cargo r --example demo`.
 
 ### Fixed
 
