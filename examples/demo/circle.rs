@@ -115,8 +115,11 @@ fn effects() -> Vec<EffectAsset> {
     })]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("circle")));
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    );
 }
 
 fn setup(

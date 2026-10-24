@@ -26,8 +26,11 @@ fn effects() -> Vec<EffectAsset> {
     vec![create_head_effect(), create_body_effect()]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("worms")));
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    );
 }
 
 fn create_head_effect() -> EffectAsset {

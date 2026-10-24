@@ -142,9 +142,12 @@ fn effects() -> Vec<EffectAsset> {
     vec![effect1, effect2, effect3]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("spawn")))
-        .add_systems(Update, update_accel.run_if(super::selected_demo("spawn")));
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    )
+    .add_systems(Update, update_accel.run_if(super::demo_running(entity)));
 }
 
 /// A simple marker component to identify the effect using a swaying

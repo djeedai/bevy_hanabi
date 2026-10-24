@@ -17,6 +17,16 @@ use wgpu::BlendState;
 
 use crate::prelude::*;
 
+/// The render layer used by the demo browser's own UI.
+pub const UI_RENDER_LAYER: usize = 63;
+
+pub(crate) fn ui_camera_output_mode() -> CameraOutputMode {
+    CameraOutputMode::Write {
+        blend_state: Some(BlendState::ALPHA_BLENDING),
+        clear_color: ClearColorConfig::None,
+    }
+}
+
 /// Calculate a log filter for the LogPlugin based on the example app name.
 pub fn get_log_filters(example_name: &str) -> String {
     [
@@ -160,15 +170,12 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
             Projection::Orthographic(OrthographicProjection::default_2d()),
             Camera {
                 order: 1000, // render UI above everything
-                clear_color: ClearColorConfig::None,
-                output_mode: CameraOutputMode::Write {
-                    blend_state: Some(BlendState::ALPHA_BLENDING),
-                    clear_color: ClearColorConfig::None,
-                },
+                clear_color: Color::NONE.into(),
+                output_mode: ui_camera_output_mode(),
                 ..default()
             },
             Name::new("UI camera"),
-            RenderLayers::layer(63),
+            RenderLayers::layer(UI_RENDER_LAYER),
         ))
         .id();
 

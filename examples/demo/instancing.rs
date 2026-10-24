@@ -262,13 +262,16 @@ fn effects() -> Vec<EffectAsset> {
     vec![effect, alt_effect]
 }
 
-fn install(app: &mut App) {
+fn install(app: &mut App, entity: Entity) {
     app.insert_resource(InstanceManager::new(5, 4))
-        .add_systems(Update, setup.run_if(super::selected_once("instancing")))
+        .add_systems(
+            OnEnter(super::DemoState::Running),
+            setup.run_if(super::demo_selected(entity)),
+        )
         .add_systems(
             Update,
             (keyboard_input_system, update_color_via_property)
-                .run_if(super::selected_demo("instancing")),
+                .run_if(super::demo_running(entity)),
         );
 }
 

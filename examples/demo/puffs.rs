@@ -38,7 +38,7 @@ fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]
 }
 
-fn install(app: &mut App) {
+fn install(app: &mut App, entity: Entity) {
     app.register_type::<LambertianLightingModifier>();
     bevy_hanabi::modifier::register_reflect_modifier::<LambertianLightingModifier>(
         app.world().resource::<AppTypeRegistry>(),
@@ -50,10 +50,13 @@ fn install(app: &mut App) {
         },
     );
     app.init_resource::<GlobalAmbientLight>()
-        .add_systems(Update, setup.run_if(super::selected_once("puffs")))
+        .add_systems(
+            OnEnter(super::DemoState::Running),
+            setup.run_if(super::demo_selected(entity)),
+        )
     .add_systems(
         Update,
-        setup_scene_once_loaded.run_if(super::selected_demo("puffs")),
+        setup_scene_once_loaded.run_if(super::demo_running(entity)),
     );
 }
 

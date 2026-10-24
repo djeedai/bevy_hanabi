@@ -62,9 +62,12 @@ fn effects() -> Vec<EffectAsset> {
     ]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("2d")))
-        .add_systems(Update, update_plane.run_if(super::selected_demo("2d")));
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    )
+    .add_systems(Update, update_plane.run_if(super::demo_running(entity)));
 }
 
 fn setup(

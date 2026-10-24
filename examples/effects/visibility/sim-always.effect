@@ -1,5 +1,5 @@
 (
-  name: "",
+  name: "sim-always",
   capacity: 4096,
   spawner: (
     count: Single(50.0),

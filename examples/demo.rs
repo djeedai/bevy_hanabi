@@ -8,8 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button};
+use bevy::{camera::visibility::RenderLayers, prelude::*};
 use bevy::{ecs::system::SystemParam, picking::hover::Hovered};
 use bevy_hanabi::prelude::*;
 
@@ -24,22 +24,31 @@ pub(crate) struct DemoInfo {
 
 #[derive(Component, Clone, Copy)]
 pub(crate) struct Demo {
-    install: fn(&mut App),
+    install: fn(&mut App, Entity),
     effects: fn() -> Vec<EffectAsset>,
 }
 
 impl Demo {
-    const fn new(install: fn(&mut App), effects: fn() -> Vec<EffectAsset>) -> Self {
+    const fn new(install: fn(&mut App, Entity), effects: fn() -> Vec<EffectAsset>) -> Self {
         Self { install, effects }
     }
 }
 
+/// Display name of a demo.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct DemoName(pub(crate) &'static str);
 
+/// Description text of a demo.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct DemoDescription(pub(crate) &'static str);
 
+/// Declare a demo.
+///
+/// The demo module must contain:
+/// - `DEMO_DESC: &'str` -- the demo description text
+/// - `install()` -- the installation system
+/// - `effects()` -- the function returning the list of [`EffectAsset`] used by
+///   the demo.
 macro_rules! declare_demo {
     ($name:literal) => {
         pub(crate) fn insert_demo(world: &mut World) {
@@ -66,7 +75,7 @@ macro_rules! declare_demos {
 }
 
 declare_demos! {
-    two_d => "demo/2d.rs",
+    d2 => "demo/2d.rs",
     activate => "demo/activate.rs",
     billboard => "demo/billboard.rs",
     circle => "demo/circle.rs",
@@ -119,6 +128,7 @@ fn install_demos(app: &mut App) {
     };
 
     for (entity, demo, name) in demos {
+        // Create all effect assets and register them
         let handles = (demo.effects)()
             .into_iter()
             .map(|effect| {
@@ -127,7 +137,9 @@ fn install_demos(app: &mut App) {
                     .add(effect)
             })
             .collect();
-        (demo.install)(app);
+
+        // Install the demo
+        (demo.install)(app, entity);
         app.world_mut().entity_mut(entity).insert(DemoInfo {
             id: name.0,
             effects: handles,
@@ -136,7 +148,7 @@ fn install_demos(app: &mut App) {
 }
 
 #[derive(Component)]
-struct MenuButton(&'static str);
+struct MenuButton(Entity);
 
 #[derive(Component)]
 struct MenuRoot;
@@ -144,9 +156,30 @@ struct MenuRoot;
 #[derive(Component)]
 struct MenuCamera;
 
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum DemoState {
+    #[default]
+    Loading,
+    Running,
+    Unloading,
+}
+
+#[derive(Resource)]
+pub(crate) struct DemoSelection(pub(crate) Entity);
+
 #[derive(Resource, Default)]
-pub(crate) struct DemoSelection {
-    id: Option<String>,
+struct PendingDemoSelection(Option<Entity>);
+
+pub(crate) fn demo_selected(entity: Entity) -> impl Fn(Res<DemoSelection>) -> bool + Clone {
+    move |selection: Res<DemoSelection>| selection.0 == entity
+}
+
+pub(crate) fn demo_running(
+    entity: Entity,
+) -> impl Fn(Res<State<DemoState>>, Res<DemoSelection>) -> bool + Clone {
+    move |state: Res<State<DemoState>>, selection: Res<DemoSelection>| {
+        *state.get() == DemoState::Running && selection.0 == entity
+    }
 }
 
 #[derive(Component)]
@@ -174,26 +207,6 @@ impl<'w, 's> Deref for DemoCommands<'w, 's> {
 impl DerefMut for DemoCommands<'_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.commands
-    }
-}
-
-pub(crate) fn selected_demo(id: &'static str) -> impl Fn(Res<DemoSelection>) -> bool + Clone {
-    move |selection: Res<DemoSelection>| selection.id.as_deref() == Some(id)
-}
-
-pub(crate) fn selected_once(
-    id: &'static str,
-) -> impl FnMut(Res<DemoSelection>, Local<bool>) -> bool + Clone {
-    move |selection: Res<DemoSelection>, mut has_run: Local<bool>| {
-        if selection.id.as_deref() == Some(id) {
-            if !*has_run {
-                *has_run = true;
-                return true;
-            }
-        } else {
-            *has_run = false;
-        }
-        false
     }
 }
 
@@ -226,33 +239,27 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
         .build();
     insert_demos(app.world_mut());
     app.world_mut().resource_mut::<utils::Demo>().show_ui = false;
-    app.insert_resource(DemoSelection { id: None });
+    let selected = selected.as_deref().unwrap_or("firework");
+    let selected = {
+        let world = app.world_mut();
+        let mut query = world.query::<(Entity, &DemoName)>();
+        query
+            .iter(world)
+            .find(|(_, demo)| demo.0 == selected)
+            .map(|(entity, _)| entity)
+            .expect("selected demo was validated")
+    };
+    app.insert_resource(DemoSelection(selected))
+        .init_resource::<PendingDemoSelection>()
+        .init_state::<DemoState>();
 
-    app.add_systems(
-        Startup,
-        (
-            spawn_menu.run_if(no_demo_selected),
-            spawn_menu_camera_if_missing.run_if(no_demo_selected),
-        )
-            .chain(),
-    )
-    .add_systems(
-        Update,
-        (
-            return_to_menu_on_esc,
-            clear_demo_content.run_if(no_demo_selected),
-            spawn_menu_if_missing.run_if(no_demo_selected),
-            spawn_menu_camera_if_missing.run_if(no_demo_selected),
-        )
-            .chain(),
-    )
-    .add_systems(Update, highlight_menu_buttons)
-    .add_systems(Update, sync_demo_info.before(utils::update_demo_ui))
-    .add_observer(choose_demo);
+    install_demo_state_systems(&mut app);
+    app.add_systems(Startup, (spawn_menu, spawn_menu_camera))
+        .add_systems(Update, highlight_menu_buttons)
+        .add_systems(Update, sync_demo_info.before(utils::update_demo_ui))
+        .add_observer(choose_demo);
 
     install_demos(&mut app);
-    app.world_mut().resource_mut::<DemoSelection>().id = selected;
-
     app.run().into_result()
 }
 
@@ -297,14 +304,27 @@ fn parse_cli() -> Result<CliMode, Box<dyn Error>> {
     }
 }
 
-fn no_demo_selected(selection: Res<DemoSelection>) -> bool {
-    selection.id.is_none()
+fn begin_demo(mut next_state: ResMut<NextState<DemoState>>) {
+    next_state.set(DemoState::Running);
 }
 
-fn return_to_menu_on_esc(input: Res<ButtonInput<KeyCode>>, mut selection: ResMut<DemoSelection>) {
-    if input.just_pressed(KeyCode::Escape) {
-        selection.id = None;
+fn install_demo_state_systems(app: &mut App) {
+    app.add_systems(OnEnter(DemoState::Loading), begin_demo)
+        .add_systems(
+            OnEnter(DemoState::Unloading),
+            (clear_demo_content, prepare_next_demo).chain(),
+        );
+}
+
+fn prepare_next_demo(
+    mut selection: ResMut<DemoSelection>,
+    mut pending: ResMut<PendingDemoSelection>,
+    mut next_state: ResMut<NextState<DemoState>>,
+) {
+    if let Some(entity) = pending.0.take() {
+        selection.0 = entity;
     }
+    next_state.set(DemoState::Loading);
 }
 
 fn sync_demo_info(
@@ -312,16 +332,10 @@ fn sync_demo_info(
     demos: Query<(&DemoName, Option<&DemoDescription>)>,
     mut demo: ResMut<utils::Demo>,
 ) {
-    let Some(id) = selection.id.as_deref() else {
-        if demo.show_ui {
-            demo.show_ui = false;
-        }
-        return;
-    };
     if !selection.is_changed() && demo.show_ui {
         return;
     }
-    if let Some((name, description)) = demos.iter().find(|(name, _)| name.0 == id) {
+    if let Ok((name, description)) = demos.get(selection.0) {
         demo.name = name.0.to_string();
         demo.desc = description
             .map_or("", |description| description.0)
@@ -330,64 +344,67 @@ fn sync_demo_info(
     }
 }
 
-fn spawn_menu(mut commands: Commands, demos: Query<&DemoName>) {
+fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName)>) {
     commands
         .spawn((
             Node {
-                width: Val::Percent(100.),
+                width: Val::Px(220.),
                 height: Val::Percent(100.),
+                position_type: PositionType::Absolute,
+                top: Val::Px(0.),
+                right: Val::Px(0.),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                row_gap: Val::Px(8.),
+                justify_content: JustifyContent::Start,
+                row_gap: Val::Px(4.),
+                padding: UiRect::all(Val::Px(8.)),
                 overflow: Overflow::clip_y(),
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.035, 0.045, 0.07)),
+            BackgroundColor(Color::srgba(0.035, 0.045, 0.07, 0.92)),
+            ZIndex(1),
             MenuRoot,
         ))
         .with_children(|parent| {
             parent.spawn((
                 Text::new("Hanabi demos"),
-                TextFont::from_font_size(32.),
+                TextFont::from_font_size(20.),
                 TextColor(Color::WHITE),
                 Node {
-                    margin: UiRect::bottom(Val::Px(14.)),
+                    margin: UiRect::bottom(Val::Px(6.)),
                     ..default()
                 },
             ));
 
             parent
                 .spawn(Node {
-                    width: Val::Vw(80.),
-                    flex_direction: FlexDirection::Row,
-                    flex_wrap: FlexWrap::Wrap,
+                    width: Val::Percent(100.),
+                    flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    column_gap: Val::Px(8.),
-                    row_gap: Val::Px(8.),
+                    justify_content: JustifyContent::Start,
+                    row_gap: Val::Px(4.),
                     ..default()
                 })
                 .with_children(|grid| {
-                    for demo in &demos {
+                    for (entity, demo) in &demos {
                         grid.spawn((
                             Button,
                             Node {
-                                width: Val::Px(240.),
-                                min_height: Val::Px(48.),
-                                padding: UiRect::all(Val::Px(8.)),
+                                width: Val::Percent(100.),
+                                min_height: Val::Px(24.),
+                                padding: UiRect::all(Val::Px(4.)),
                                 align_items: AlignItems::Center,
                                 justify_content: JustifyContent::Center,
                                 ..default()
                             },
                             BackgroundColor(Color::srgb(0.12, 0.16, 0.24)),
                             Hovered::default(),
-                            MenuButton(demo.0),
+                            MenuButton(entity),
                         ))
                         .with_children(|button| {
                             button.spawn((
                                 Text::new(demo.0),
-                                TextFont::from_font_size(16.),
+                                TextFont::from_font_size(13.),
                                 TextColor(Color::WHITE),
                             ));
                         });
@@ -396,20 +413,19 @@ fn spawn_menu(mut commands: Commands, demos: Query<&DemoName>) {
         });
 }
 
-fn spawn_menu_if_missing(
-    commands: Commands,
-    demos: Query<&DemoName>,
-    menu: Query<(), With<MenuRoot>>,
-) {
-    if menu.is_empty() {
-        spawn_menu(commands, demos);
-    }
-}
-
-fn spawn_menu_camera_if_missing(mut commands: Commands, cameras: Query<(), With<MenuCamera>>) {
-    if cameras.is_empty() {
-        commands.spawn((Camera2d, Name::new("menu camera"), MenuCamera));
-    }
+fn spawn_menu_camera(mut commands: Commands) {
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: Color::NONE.into(),
+            output_mode: utils::ui_camera_output_mode(),
+            ..default()
+        },
+        RenderLayers::layer(utils::UI_RENDER_LAYER),
+        Name::new("menu camera"),
+        MenuCamera,
+    ));
 }
 
 fn clear_demo_content(
@@ -438,16 +454,14 @@ fn highlight_menu_buttons(
 fn choose_demo(
     activate: On<Activate>,
     buttons: Query<&MenuButton>,
-    mut commands: Commands,
-    mut selection: ResMut<DemoSelection>,
-    q_delete: Query<Entity, Or<(With<Node>, With<Camera>)>>,
+    selection: Res<DemoSelection>,
+    mut pending: ResMut<PendingDemoSelection>,
+    mut next_state: ResMut<NextState<DemoState>>,
 ) {
     if let Ok(button) = buttons.get(activate.entity) {
-        selection.id = Some(button.0.to_string());
-
-        // Clean-up everything that could leak into the new demo about to start
-        for entity in &q_delete {
-            commands.entity(entity).despawn();
+        if button.0 != selection.0 {
+            pending.0 = Some(button.0);
+            next_state.set(DemoState::Unloading);
         }
     }
 }
@@ -565,7 +579,6 @@ fn headless_app() -> App {
         AssetPlugin::default(),
         bevy::state::app::StatesPlugin,
     ))
-    .init_resource::<DemoSelection>()
     .init_asset::<EffectAsset>()
     .init_asset::<Mesh>()
     .init_asset::<Image>()
@@ -576,6 +589,19 @@ fn headless_app() -> App {
     .register_type::<SpawnerSettings>();
     register_modifiers(app.world().resource::<AppTypeRegistry>());
     insert_demos(app.world_mut());
+    let selected = {
+        let world = app.world_mut();
+        let mut query = world.query::<(Entity, &DemoName)>();
+        query
+            .iter(world)
+            .find(|(_, name)| name.0 == "firework")
+            .map(|(entity, _)| entity)
+            .expect("firework demo is registered")
+    };
+    app.insert_resource(DemoSelection(selected))
+        .init_resource::<PendingDemoSelection>()
+        .init_state::<DemoState>();
+    install_demo_state_systems(&mut app);
     install_demos(&mut app);
     app
 }
@@ -669,53 +695,76 @@ mod tests {
     }
 
     #[test]
-    fn returning_to_menu_clears_demo_content_and_allows_reentry() {
+    fn unloading_clears_demo_content_before_loading_again() {
         let mut app = App::new();
-        app.insert_resource(DemoSelection::default())
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .insert_resource(DemoSelection(Entity::PLACEHOLDER))
+            .init_resource::<PendingDemoSelection>()
             .init_resource::<GlobalAmbientLight>()
+            .init_state::<DemoState>()
             .add_systems(
-                Update,
-                spawn_demo_content.run_if(selected_once("test-demo")),
+                OnEnter(DemoState::Running),
+                spawn_demo_content.run_if(demo_selected(Entity::PLACEHOLDER)),
             )
-            .add_systems(Update, clear_demo_content.run_if(no_demo_selected));
-
-        app.world_mut().resource_mut::<DemoSelection>().id = Some("test-demo".to_string());
+            .add_systems(OnEnter(DemoState::Loading), begin_demo)
+            .add_systems(
+                OnEnter(DemoState::Unloading),
+                (clear_demo_content, prepare_next_demo).chain(),
+            );
+        app.update();
         app.update();
 
         let mut content = app.world_mut().query_filtered::<Entity, With<Name>>();
         assert_eq!(content.iter(app.world()).count(), 2);
 
-        app.world_mut().resource_mut::<DemoSelection>().id = None;
+        app.world_mut()
+            .resource_mut::<NextState<DemoState>>()
+            .set(DemoState::Unloading);
         app.update();
         assert_eq!(content.iter(app.world()).count(), 0);
 
-        app.world_mut().resource_mut::<DemoSelection>().id = Some("test-demo".to_string());
+        app.update();
         app.update();
         assert_eq!(content.iter(app.world()).count(), 2);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn selected_demos_spawn_their_camera() {
-        for id in ["expr", "firework", "gradient", "ribbon"] {
-            let mut app = headless_app();
-            app.add_plugins(bevy::time::TimePlugin)
-                .init_resource::<Time<EffectSimulation>>()
-                .add_systems(
-                    Update,
-                    (
-                        clear_demo_content.run_if(no_demo_selected),
-                        spawn_menu_if_missing.run_if(no_demo_selected),
-                        spawn_menu_camera_if_missing.run_if(no_demo_selected),
-                    )
-                        .chain(),
-                )
-                .add_observer(choose_demo);
-            app.world_mut().spawn((Node::default(), MenuRoot));
-            let original_menu_camera = app.world_mut().spawn((Camera2d, MenuCamera)).id();
-            let button = app.world_mut().spawn(MenuButton(id)).id();
+    fn selecting_demo_keeps_menu_visible_and_runs_only_selected_demo() {
+        let mut app = headless_app();
+        app.add_plugins(bevy::time::TimePlugin)
+            .init_asset::<AnimationGraph>()
+            .init_resource::<Time<EffectSimulation>>()
+            .add_observer(choose_demo);
+        app.world_mut().spawn((Node::default(), MenuRoot));
+        let original_menu_camera = app.world_mut().spawn((Camera2d, MenuCamera)).id();
+        app.update();
+
+        for id in [
+            "expr",
+            "lightning",
+            "puffs",
+            "portal",
+            "spawn",
+            "puffs",
+            "gradient",
+            "ribbon",
+            "firework",
+        ] {
+            let demo_entity = {
+                let world = app.world_mut();
+                let mut demos = world.query::<(Entity, &DemoName)>();
+                demos
+                    .iter(world)
+                    .find(|(_, name)| name.0 == id)
+                    .map(|(entity, _)| entity)
+                    .unwrap()
+            };
+            let button = app.world_mut().spawn(MenuButton(demo_entity)).id();
             app.world_mut().trigger(Activate { entity: button });
-            app.world_mut().run_schedule(Update);
+            for _ in 0..5 {
+                app.update();
+            }
 
             let mut cameras = app
                 .world_mut()
@@ -730,27 +779,61 @@ mod tests {
             );
 
             let mut menu = app.world_mut().query_filtered::<Entity, With<MenuRoot>>();
-            assert_eq!(menu.iter(app.world()).count(), 0);
-            let mut nodes = app.world_mut().query_filtered::<Entity, With<Node>>();
-            assert_eq!(nodes.iter(app.world()).count(), 0);
+            assert_eq!(menu.iter(app.world()).count(), 1);
 
             let mut menu_cameras = app
                 .world_mut()
                 .query_filtered::<(Entity, &Camera), With<MenuCamera>>();
-            assert_eq!(menu_cameras.iter(app.world()).count(), 0);
-            assert!(app.world().get_entity(original_menu_camera).is_err());
+            let (menu_camera, camera) = menu_cameras.single(app.world()).unwrap();
+            assert_eq!(menu_camera, original_menu_camera);
+            assert!(camera.is_active);
+            assert_eq!(app.world().resource::<DemoSelection>().0, demo_entity);
+            if id == "puffs" {
+                let mut effects = app
+                    .world_mut()
+                    .query_filtered::<Entity, (With<ParticleEffect>, With<DemoContent>)>();
+                assert_eq!(effects.iter(app.world()).count(), 1);
+            }
+            assert_eq!(
+                *app.world().resource::<State<DemoState>>().get(),
+                DemoState::Running
+            );
+        }
+    }
 
-            app.world_mut().resource_mut::<DemoSelection>().id = None;
-            app.world_mut().run_schedule(Update);
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn initially_selected_hdr_demos_spawn_their_camera() {
+        for id in ["expr", "firework"] {
+            let mut app = headless_app();
+            let demo_entity = {
+                let world = app.world_mut();
+                let mut demos = world.query::<(Entity, &DemoName)>();
+                demos
+                    .iter(world)
+                    .find(|(_, name)| name.0 == id)
+                    .map(|(entity, _)| entity)
+                    .unwrap()
+            };
+            app.world_mut().resource_mut::<DemoSelection>().0 = demo_entity;
+            app.add_plugins(bevy::time::TimePlugin)
+                .init_resource::<Time<EffectSimulation>>();
+
+            for _ in 0..3 {
+                app.update();
+            }
 
             let mut cameras = app
                 .world_mut()
-                .query_filtered::<Entity, (With<DemoContent>, With<Camera3d>)>();
-            assert_eq!(cameras.iter(app.world()).count(), 0);
-            assert_eq!(menu.iter(app.world()).count(), 1);
-            let (menu_camera, camera) = menu_cameras.single(app.world()).unwrap();
-            assert_ne!(menu_camera, original_menu_camera);
-            assert!(camera.is_active);
+                .query_filtered::<&Camera, (With<DemoContent>, With<Camera3d>)>();
+            assert_eq!(
+                cameras
+                    .iter(app.world())
+                    .filter(|camera| camera.is_active)
+                    .count(),
+                1,
+                "demo '{id}' did not spawn its camera on initial selection"
+            );
         }
     }
 }

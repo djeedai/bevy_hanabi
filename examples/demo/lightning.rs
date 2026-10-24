@@ -35,11 +35,14 @@ fn effects() -> Vec<EffectAsset> {
     vec![create_bolt_effect(), create_impact_effect()]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("lightning")))
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    )
         .add_systems(
             Update,
-            update_lightning_timers.run_if(super::selected_demo("lightning")),
+            update_lightning_timers.run_if(super::demo_running(entity)),
         );
 }
 

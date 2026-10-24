@@ -122,11 +122,14 @@ fn effects() -> Vec<EffectAsset> {
         .render(ColorOverLifetimeModifier::new(gradient))]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("force_field")))
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    )
         .add_systems(
             Update,
-            (spawn_on_click, move_repulsor).run_if(super::selected_demo("force_field")),
+            (spawn_on_click, move_repulsor).run_if(super::demo_running(entity)),
         );
 }
 

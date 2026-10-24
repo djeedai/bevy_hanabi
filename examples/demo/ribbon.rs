@@ -90,13 +90,16 @@ fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("ribbon")))
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    )
         .add_systems(
             Update,
             (spawn_ribbons, recycle_ribbons, move_head)
                 .after(setup)
-                .run_if(super::selected_demo("ribbon")),
+                .run_if(super::demo_running(entity)),
         );
 }
 

@@ -37,9 +37,12 @@ fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("lut")))
-        .add_systems(Update, update.run_if(super::selected_demo("lut")));
+fn install(app: &mut App, entity: Entity) {
+    app.add_systems(
+        OnEnter(super::DemoState::Running),
+        setup.run_if(super::demo_selected(entity)),
+    )
+    .add_systems(Update, update.run_if(super::demo_running(entity)));
 }
 
 fn setup(
