@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-wasm_bindgen_version=0.2.125
+wasm_bindgen_version=0.2.129
 if ! wasm-bindgen --version | grep -q "$wasm_bindgen_version"; then
     echo "Install wasm-bindgen-cli $wasm_bindgen_version" >&2
     exit 1

@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-echo Check that wasm-bindgen -V returns 0.2.125, otherwise cargo install wasm-bindgen-cli --version 0.2.125
+echo Check that wasm-bindgen -V returns 0.2.129, otherwise cargo install wasm-bindgen-cli --version 0.2.129
 set RUSTFLAGS=--cfg web_sys_unstable_apis --cfg getrandom_backend="wasm_js"
 
 cargo build --release --example demo --target wasm32-unknown-unknown --features="bevy/webgpu"

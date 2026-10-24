@@ -1,5 +1,4 @@
 use std::{
-    collections::{HashMap, HashSet},
     error::Error,
     ops::{Deref, DerefMut},
 };
@@ -9,6 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::platform::collections::HashMap;
 use bevy::{
     camera::visibility::RenderLayers,
     color::Luminance,
@@ -21,9 +22,10 @@ use bevy::{
         tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
         FocusGained, FocusedInput, InputFocus, InputFocusVisible,
     },
-    picking::hover::Hovered,
+    picking::{hover::Hovered, Pickable},
+    platform::collections::HashSet,
     prelude::*,
-    text::{EditableText, FontSource, FontWeight, TextCursorStyle, TextEditChange},
+    text::{EditableText, FontWeight, TextCursorStyle, TextEditChange},
     ui::{ComputedNode, FocusPolicy, UiGlobalTransform, UiSystems},
     ui_widgets::{
         Activate, Button, ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar,
@@ -311,6 +313,9 @@ struct MenuSearchInput;
 struct MenuSearchInputContent;
 
 #[derive(Component)]
+struct MenuSearchPlaceholder;
+
+#[derive(Component)]
 struct MenuSearchFocusIndicator;
 
 #[derive(Component)]
@@ -581,14 +586,8 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                 .with_children(|header| {
                     header.spawn((
                         Text::new("Hanabi demos"),
-                        menu_font(19.),
+                        utils::ui_font(19.),
                         TextColor(Color::WHITE),
-                    ));
-
-                    header.spawn((
-                        Text::new("Search by name"),
-                        menu_font(11.),
-                        TextColor(Color::srgb(0.7, 0.7, 0.71)),
                     ));
 
                     header
@@ -635,9 +634,33 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                         },
                                         TextLayout::no_wrap(),
                                         TabIndex(0),
-                                        menu_font(12.),
+                                        utils::ui_font(12.),
                                         TextColor(Color::WHITE),
                                         MenuSearchInput,
+                                    ));
+                                });
+                            search
+                                .spawn((
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        left: Val::Px(7.),
+                                        right: Val::Px(3.),
+                                        top: Val::Px(0.),
+                                        bottom: Val::Px(0.),
+                                        overflow: Overflow::clip(),
+                                        align_items: AlignItems::Center,
+                                        ..default()
+                                    },
+                                    Pickable::IGNORE,
+                                    MenuSearchPlaceholder,
+                                ))
+                                .with_children(|placeholder| {
+                                    placeholder.spawn((
+                                        Text::new("Search by demo name..."),
+                                        utils::ui_font(12.),
+                                        TextColor(Color::srgb(0.7, 0.7, 0.71)),
+                                        TextLayout::no_wrap(),
+                                        Pickable::IGNORE,
                                     ));
                                 });
                             search.spawn((
@@ -755,7 +778,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                     ..default()
                                 },
                                 Text::new("No demos match your search."),
-                                menu_font(11.),
+                                utils::ui_font(11.),
                                 TextColor(Color::srgb(0.7, 0.7, 0.71)),
                                 MenuEmptyState,
                             ));
@@ -797,7 +820,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                         .with_children(|title| {
                                             title.spawn((
                                                 Text::new(demo.0),
-                                                menu_font(12.),
+                                                utils::ui_font(12.),
                                                 TextColor(Color::WHITE),
                                             ));
                                             for tag in tags.0 {
@@ -832,7 +855,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                                             ..default()
                                         },
                                         Text::new(summary.0),
-                                        menu_font(11.),
+                                        utils::ui_font(11.),
                                         TextColor(Color::srgb(0.7, 0.7, 0.71)),
                                     ));
                                 });
@@ -863,17 +886,10 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
         });
 }
 
-fn menu_font(size: f32) -> TextFont {
-    TextFont {
-        font: FontSource::list([FontSource::system_ui(), FontSource::default()]),
-        ..TextFont::from_font_size(size)
-    }
-}
-
 fn menu_tag_font(size: f32) -> TextFont {
     TextFont {
         weight: FontWeight::SEMIBOLD,
-        ..menu_font(size)
+        ..utils::ui_font(size)
     }
 }
 
@@ -881,6 +897,7 @@ fn search_text_changed(
     on: On<TextEditChange>,
     inputs: Query<&EditableText, With<MenuSearchInput>>,
     mut search: ResMut<MenuSearch>,
+    mut placeholders: Query<&mut Visibility, With<MenuSearchPlaceholder>>,
 ) {
     let Ok(input) = inputs.get(on.event_target()) else {
         return;
@@ -889,6 +906,14 @@ fn search_text_changed(
     search.name.clear();
     for part in input.value() {
         search.name.push_str(part);
+    }
+
+    for mut visibility in &mut placeholders {
+        *visibility = if search.name.is_empty() {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 

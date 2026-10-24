@@ -7,7 +7,7 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{settings::WgpuSettings, RenderDebugFlags, RenderPlugin},
-    text::{TextColor, TextFont},
+    text::{FontSource, TextColor, TextFont},
     ui::{
         widget::Text, BackgroundColor, BorderColor, BorderRadius, Display, Node, Overflow,
         PositionType, UiRect, Val, ZIndex,
@@ -19,6 +19,13 @@ use crate::prelude::*;
 
 /// The render layer used by the demo browser's own UI.
 pub const UI_RENDER_LAYER: usize = 63;
+
+pub(crate) fn ui_font(size: f32) -> TextFont {
+    TextFont {
+        font: FontSource::list([FontSource::system_ui(), FontSource::default()]),
+        ..TextFont::from_font_size(size)
+    }
+}
 
 pub(crate) fn ui_camera_output_mode() -> CameraOutputMode {
     CameraOutputMode::Write {
@@ -102,6 +109,7 @@ impl DemoApp {
                     .set(WindowPlugin {
                         primary_window: Some(Window {
                             title: format!("🎆 Hanabi — {}", self.name),
+                            fit_canvas_to_parent: true,
                             ..default()
                         }),
                         ..default()
@@ -208,8 +216,8 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
             border_radius: BorderRadius::all(Val::Px(8.)),
             ..default()
         },
-        BackgroundColor(Color::linear_rgba(0., 0., 0., 0.8)),
-        BorderColor::all(Color::linear_rgb(0.8, 0.8, 0.8)),
+        BackgroundColor(Color::srgba(0.12, 0.12, 0.13, 0.8)),
+        BorderColor::all(Color::srgba(0.2, 0.2, 0.21, 0.8)),
         ZIndex(3000),
         DemoInfoRoot,
         children![
@@ -221,7 +229,7 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
                 },
                 Text::new(demo.name.clone()),
                 TextColor(Color::linear_rgb(1., 1., 1.)),
-                TextFont::from_font_size(18.),
+                ui_font(18.),
                 DemoTitle,
             ),
             (
@@ -232,7 +240,7 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
                 },
                 Text::new(demo.desc.clone()),
                 TextColor(Color::linear_rgb(0.8, 0.8, 0.8)),
-                TextFont::from_font_size(12.),
+                ui_font(12.),
                 DemoDescription,
             )
         ],
