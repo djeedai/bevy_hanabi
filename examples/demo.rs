@@ -9,7 +9,9 @@ use std::{
 
 use bevy::color::Luminance;
 use bevy::input_focus::tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin};
+use bevy::input_focus::InputFocus;
 use bevy::text::{EditableText, FontSource, FontWeight, TextCursorStyle, TextEditChange};
+use bevy::ui::FocusPolicy;
 use bevy::ui_widgets::{
     Activate, Button, ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb, TextInput,
 };
@@ -283,6 +285,12 @@ struct MenuEmptyState;
 struct MenuSearchInput;
 
 #[derive(Component)]
+struct MenuSearchInputContent;
+
+#[derive(Component)]
+struct MenuSearchFocusIndicator;
+
+#[derive(Component)]
 struct MenuCamera;
 
 #[derive(Resource, Default)]
@@ -396,7 +404,14 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
     install_demo_state_systems(&mut app);
     app.add_plugins(TabNavigationPlugin);
     app.add_systems(Startup, (spawn_menu, spawn_menu_camera))
-        .add_systems(Update, (highlight_menu_buttons, update_menu_filter))
+        .add_systems(
+            Update,
+            (
+                highlight_menu_buttons,
+                update_menu_filter,
+                update_menu_search_focus_indicator,
+            ),
+        )
         .add_systems(Update, sync_demo_info.before(utils::update_demo_ui))
         .add_observer(search_text_changed)
         .add_observer(toggle_menu_tag)
@@ -545,32 +560,67 @@ fn spawn_menu(mut commands: Commands, demos: Query<(Entity, &DemoName, &DemoSumm
                             Node {
                                 width: Val::Percent(100.),
                                 min_height: Val::Px(30.),
-                                padding: UiRect::horizontal(Val::Px(7.)),
                                 border: UiRect::all(Val::Px(1.)),
                                 border_radius: BorderRadius::all(Val::Px(4.)),
-                                align_items: AlignItems::Center,
+                                flex_direction: FlexDirection::Column,
                                 ..default()
                             },
                             BackgroundColor(Color::srgb(0.19, 0.21, 0.23)),
                             BorderColor::all(Color::srgb(0.25, 0.26, 0.27)),
                         ))
                         .with_children(|search| {
+                            search
+                                .spawn((
+                                    Node {
+                                        width: Val::Percent(100.),
+                                        flex_grow: 1.,
+                                        padding: UiRect::horizontal(Val::Px(7.)),
+                                        align_items: AlignItems::Center,
+                                        ..default()
+                                    },
+                                    MenuSearchInputContent,
+                                ))
+                                .with_children(|content| {
+                                    content.spawn((
+                                        Node {
+                                            width: Val::Percent(100.),
+                                            ..default()
+                                        },
+                                        TextInput,
+                                        EditableText::new(""),
+                                        TextCursorStyle {
+                                            color: Color::srgb(0.9, 0.9, 0.9),
+                                            ..default()
+                                        },
+                                        TextLayout::no_wrap(),
+                                        TabIndex(0),
+                                        menu_font(12.),
+                                        TextColor(Color::WHITE),
+                                        MenuSearchInput,
+                                    ));
+                                });
                             search.spawn((
+                                // Focus indicator: we need a half-pill shape, that clips to the
+                                // rounded corners of the parent. Bevy clamps the border radius to
+                                // the min(half-width, half-height) so we can't set a bottom radius
+                                // equal to the total height. So we use a shape twice as tall,
+                                // remove its top and side borders, make it transparent, and only
+                                // use its bottom border as shape.
                                 Node {
-                                    width: Val::Percent(100.),
+                                    height: Val::Px(4.),
+                                    border: UiRect::bottom(Val::Px(2.)),
+                                    border_radius: BorderRadius::new(
+                                        Val::Px(0.),
+                                        Val::Px(0.),
+                                        Val::Px(2.0),
+                                        Val::Px(2.0),
+                                    ),
                                     ..default()
                                 },
-                                TextInput,
-                                EditableText::new(""),
-                                TextCursorStyle {
-                                    color: Color::srgb(0.9, 0.9, 0.9),
-                                    ..default()
-                                },
-                                TextLayout::no_wrap(),
-                                TabIndex(0),
-                                menu_font(12.),
-                                TextColor(Color::WHITE),
-                                MenuSearchInput,
+                                BackgroundColor(Color::NONE),
+                                BorderColor::all(Color::NONE),
+                                FocusPolicy::Pass,
+                                MenuSearchFocusIndicator,
                             ));
                         });
 
@@ -791,6 +841,31 @@ fn search_text_changed(
     search.name.clear();
     for part in input.value() {
         search.name.push_str(part);
+    }
+}
+
+fn update_menu_search_focus_indicator(
+    input_focus: Res<InputFocus>,
+    inputs: Query<&ChildOf, With<MenuSearchInput>>,
+    input_content: Query<&ChildOf, With<MenuSearchInputContent>>,
+    mut indicators: Query<(&ChildOf, &mut BorderColor), With<MenuSearchFocusIndicator>>,
+) {
+    if !input_focus.is_changed() {
+        return;
+    }
+
+    let focused_parent = input_focus
+        .get()
+        .and_then(|focused| inputs.get(focused).ok())
+        .and_then(|input_parent| input_content.get(input_parent.parent()).ok())
+        .map(ChildOf::parent);
+
+    for (parent, mut border_color) in &mut indicators {
+        *border_color = BorderColor::all(if Some(parent.parent()) == focused_parent {
+            Color::oklab(0.67, 0.08, -0.12)
+        } else {
+            Color::NONE
+        });
     }
 }
 
