@@ -9,7 +9,7 @@
 
 🎆 Hanabi — a GPU particle system for the Bevy game engine.
 
-![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/ea57ad23be55a098b9d9446425f1909a8e88f6fc/examples/firework.gif)
+![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/d277555d4a2350da6787245d15c56c62c739594d/examples/firework.gif)
 
 ## Overview
 
@@ -17,7 +17,7 @@ The Hanabi particle system is a modern GPU-based particle system for the Bevy ga
 
 🚧 _This project is under heavy development, and is currently lacking both features and performance / usability polish. However, for moderate-size effects, it can already be used in your project. Feedback and contributions on both design and features are very much welcome._
 
-🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way. Support for compute shaders on the `wasm` target (WebAssembly) is available as of v0.13 (Bevy 0.14), and only through WebGPU. See the [WebAssembly support](https://github.com/djeedai/bevy_hanabi/blob/ea57ad23be55a098b9d9446425f1909a8e88f6fc/docs/wasm.md) documentation for details.
+🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way. Support for compute shaders on the `wasm` target (WebAssembly) is available as of v0.13 (Bevy 0.14), and only through WebGPU. See the [WebAssembly support](https://github.com/djeedai/bevy_hanabi/blob/d277555d4a2350da6787245d15c56c62c739594d/docs/wasm.md) documentation for details.
 
 ## Usage
 
@@ -29,7 +29,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.19"
+bevy_hanabi = "0.20"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -124,7 +124,7 @@ commands.spawn((
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/ea57ad23be55a098b9d9446425f1909a8e88f6fc/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/d277555d4a2350da6787245d15c56c62c739594d/examples) folder.
 
 All examples run from one executable: `cargo run --example demo` opens an interactive menu, and `cargo run --example demo -- --demo firework` directly selects a demo to open. On WebAssembly, build with `build_examples_wasm.sh` (or `.bat`) and serve `examples/wasm/`; the same interactive menu lets you choose a demo in the browser.
 
@@ -134,7 +134,7 @@ Note for Linux users: The examples build with the `bevy/x11` feature by default 
 
 ## Feature List
 
-This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/0.19.0/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
+This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/0.20.0/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
 
 - Spawn
   - [x] Constant rate
@@ -190,8 +190,8 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
     - [x] Trails / Ribbons
   - [x] Camera support
     - [x] Render layers
-    - [x] 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.19/bevy/core_pipeline/core_2d/struct.Camera2d.html)) only
-    - [x] 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.19/bevy/core_pipeline/core_3d/struct.Camera3d.html)) only
+    - [x] 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.20/bevy/core_pipeline/core_2d/struct.Camera2d.html)) only
+    - [x] 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.20/bevy/core_pipeline/core_3d/struct.Camera3d.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
@@ -213,13 +213,13 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 
 | Feature | Default | Description |
 | --- | :-: | --- |
-| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.19/bevy/core_pipeline/core_2d/struct.Camera2d.html)) |
-| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.19/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.20/bevy/core_pipeline/core_2d/struct.Camera2d.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.20/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
 
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.19", default-features = false, features = [ "3d" ] }
+bevy_hanabi = { version = "0.20", default-features = false, features = [ "3d" ] }
 ```
 
 ## Compatible Bevy versions
@@ -230,7 +230,7 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
-| `main`        | `0.20` |
+| `0.20`        | `0.20` |
 | `0.19`        | `0.19` |
 | `0.18`        | `0.18` |
 | `0.17`        | `0.17` |

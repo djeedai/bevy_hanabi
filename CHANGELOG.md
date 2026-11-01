@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.20.0] 2026-11-01
 
 _This version is compatible with Bevy 0.20_
 
@@ -31,7 +31,6 @@ _This version is compatible with Bevy 0.20_
   using naga_oil imports or preprocessor directives must use WESL syntax instead.
   The common shader module is now imported as `bevy_hanabi::render::vfx_common`
   (previously `bevy_hanabi::vfx_common`).
-
 - Batch same-effect instances. This greatly improves performance when using many instances
   of the same effect, by reducing the number of compute jobs dispatched to the GPU, and instead
   taking full advantage of all GPU threads to process the init/update of all particles in parallel.

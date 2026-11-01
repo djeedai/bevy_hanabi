@@ -345,7 +345,7 @@ pub struct Module {
 
 macro_rules! impl_module_unary {
     ($t: ident, $T: ident) => {
-        #[doc = concat!("Build a [`UnaryOperator::", stringify!($T), "`](crate::graph::expr::UnaryOperator::", stringify!($T),") unary expression and append it to the module.\n\nThis is a shortcut for [`unary(UnaryOperator::", stringify!($T), ", inner)`](crate::graph::expr::Module::unary).")]
+        #[doc = concat!("Build a [`UnaryOperator::", stringify!($T), "`] unary expression and append it to the module.\n\nThis is a shortcut for [`unary(UnaryOperator::", stringify!($T), ", inner)`](crate::graph::expr::Module::unary).")]
         #[inline]
         pub fn $t(&mut self, inner: ExprHandle) -> ExprHandle {
             self.unary(UnaryOperator::$T, inner)
@@ -355,7 +355,7 @@ macro_rules! impl_module_unary {
 
 macro_rules! impl_module_binary {
     ($t: ident, $T: ident) => {
-        #[doc = concat!("Build a [`BinaryOperator::", stringify!($T), "`](crate::graph::expr::BinaryOperator::", stringify!($T),") binary expression and append it to the module.\n\nThis is a shortcut for [`binary(BinaryOperator::", stringify!($T), ", left, right)`](crate::graph::expr::Module::binary).")]
+        #[doc = concat!("Build a [`BinaryOperator::", stringify!($T), "`] binary expression and append it to the module.\n\nThis is a shortcut for [`binary(BinaryOperator::", stringify!($T), ", left, right)`](crate::graph::expr::Module::binary).")]
         #[inline]
         pub fn $t(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
             self.binary(BinaryOperator::$T, left, right)
@@ -365,7 +365,7 @@ macro_rules! impl_module_binary {
 
 macro_rules! impl_module_ternary {
     ($t: ident, $T: ident) => {
-        #[doc = concat!("Build a [`TernaryOperator::", stringify!($T), "`](crate::graph::expr::TernaryOperator::", stringify!($T),") ternary expression and append it to the module.\n\nThis is a shortcut for [`ternary(TernaryOperator::", stringify!($T), ", first, second, third)`](crate::graph::expr::Module::ternary).")]
+        #[doc = concat!("Build a [`TernaryOperator::", stringify!($T), "`] ternary expression and append it to the module.\n\nThis is a shortcut for [`ternary(TernaryOperator::", stringify!($T), ", first, second, third)`](crate::graph::expr::Module::ternary).")]
         #[inline]
         pub fn $t(&mut self, first: ExprHandle, second: ExprHandle, third: ExprHandle) -> ExprHandle {
             self.ternary(TernaryOperator::$T, first, second, third)

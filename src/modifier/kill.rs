@@ -195,6 +195,8 @@ impl Modifier for KillAabbModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
+///
+/// [`HanabiMainCamera`]: crate::HanabiMainCamera
 #[derive(Debug, Default, Clone, Copy, Hash, Reflect, Serialize, Deserialize)]
 pub struct KillFrustumModifier {
     /// Optional distance threshold (defaults to 0) the particle is allowed to

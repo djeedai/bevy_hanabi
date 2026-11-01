@@ -40,7 +40,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.20", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -798,6 +798,9 @@ impl SlotDimension {
     ///
     /// Array textures require an addition `array_index` when loading a value or
     /// sampling the texture. See [`TextureSampleExpr`] and [`TextureLoadExpr`].
+    ///
+    /// [`TextureSampleExpr`]: graph::expr::TextureSampleExpr
+    /// [`TextureLoadExpr`]: graph::expr::TextureLoadExpr
     pub fn is_array(&self) -> bool {
         matches!(
             *self,
@@ -828,6 +831,8 @@ impl SlotDimension {
     /// Cube textures have some usage restrictions. In particular, you cannot
     /// use them with a [`TextureLoadExpr`]. They always need a multiple of 6
     /// layers (and exactly 6 if not an array).
+    ///
+    /// [`TextureLoadExpr`]: graph::expr::TextureLoadExpr
     pub fn is_cube(&self) -> bool {
         matches!(
             *self,
