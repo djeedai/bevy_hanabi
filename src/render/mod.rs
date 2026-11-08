@@ -6856,7 +6856,10 @@ fn draw<'w>(
     let property_bind_groups = property_bind_groups.into_inner();
     let meshes = meshes.into_inner();
     let mesh_allocator = mesh_allocator.into_inner();
-    let effect_draw_batch = effect_draw_batches.get(entity.0).unwrap();
+    let Ok(effect_draw_batch) = effect_draw_batches.get(entity.0) else {
+        trace!("Effect draw batch no longer exists. Skipping draw call.");
+        return;
+    };
     let effect_batch = batcher.get(effect_draw_batch.effect_batch_index).unwrap();
     let Some(property_bind_group) = property_bind_groups.get(&effect_batch.property_key, false)
     else {
