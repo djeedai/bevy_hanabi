@@ -3,6 +3,12 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed a wgpu validation error exiting the app when a ribbon effect's texture is not loaded yet.
+
 ## [0.20.0] 2026-11-01
 
 _This version is compatible with Bevy 0.20_

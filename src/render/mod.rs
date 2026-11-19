@@ -7763,6 +7763,7 @@ fn simulate(
                         else {
                             warn!("Missing sort-fill pipeline.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortFillPipeline");
+                            compute_pass.pop_debug_group();
                             continue;
                         };
                         if compute_pass
@@ -7786,6 +7787,7 @@ fn simulate(
                         let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
                             warn!("Missing spawner buffer for sort-fill.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortFillSpawnerBuffer");
+                            compute_pass.pop_debug_group();
                             continue;
                         };
                         let Some(bind_group) = sort_bind_groups.sort_fill_bind_group(
@@ -7796,6 +7798,7 @@ fn simulate(
                         ) else {
                             warn!("Missing sort-fill bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
+                            compute_pass.pop_debug_group();
                             continue;
                         };
                         compute_pass.set_bind_group(0, bind_group, &[spawner_offset]);
@@ -7828,6 +7831,7 @@ fn simulate(
                         let Some(bind_group) = sort_bind_groups.sort_bind_group() else {
                             warn!("Missing sort bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortBindGroup");
+                            compute_pass.pop_debug_group();
                             continue;
                         };
                         compute_pass.set_bind_group(0, bind_group, &[]);
@@ -7932,6 +7936,7 @@ fn simulate(
                         let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
                             warn!("Missing spawner buffer for sort-copy.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortCopySpawnerBuffer");
+                            compute_pass.pop_debug_group();
                             continue;
                         };
                         let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
@@ -7941,6 +7946,7 @@ fn simulate(
                         ) else {
                             warn!("Missing sort-copy bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
+                            compute_pass.pop_debug_group();
                             continue;
                         };
                         let copy_source_offset = sort_bind_groups
