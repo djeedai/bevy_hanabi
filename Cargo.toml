@@ -129,6 +129,12 @@ path = "gpu_tests/batching_instancing.rs"
 harness = false
 required-features = ["bevy/bevy_winit", "bevy/bevy_window"]
 
+[[test]]
+name = "sorted_missing_texture"
+path = "gpu_tests/sorted_missing_texture.rs"
+harness = false
+required-features = ["bevy/bevy_winit", "bevy/bevy_window"]
+
 [workspace]
 resolver = "2"
 members = ["."]
